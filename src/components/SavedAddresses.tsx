@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { SavedAddress, RouteStop } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
-import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X, Edit, Crosshair } from 'lucide-react';
+import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X, Edit, Crosshair, Search } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface SavedAddressesProps {
@@ -67,6 +67,15 @@ export default function SavedAddresses({
   const [isGeocodingText, setIsGeocodingText] = useState(false);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [editError, setEditError] = useState('');
+
+  // Search query state for saved addresses
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredAddresses = savedAddresses.filter(addr => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (addr.label || '').toLowerCase().includes(q) || (addr.address || '').toLowerCase().includes(q);
+  });
 
   const handleEditClick = (addr: SavedAddress) => {
     setEditingAddress(addr);
@@ -894,15 +903,55 @@ export default function SavedAddresses({
             )}
           </div>
 
+          {savedAddresses.length > 0 && (
+            <div className="relative">
+              <input
+                id="address-search-input"
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Kayıtlı adreslerde unvan veya adres ara..."
+                className="w-full text-xs pl-8.5 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-700 font-semibold placeholder-slate-400 transition-all shadow-inner"
+              />
+              <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
+                <Search className="h-3.5 w-3.5" />
+              </div>
+              {searchQuery && (
+                <button
+                  id="clear-address-search-btn"
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                  title="Aramayı Temizle"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+
           {savedAddresses.length === 0 ? (
             <div className="text-center py-8 px-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-150 text-slate-400">
               <Bookmark className="h-8 w-8 mx-auto text-slate-300 stroke-1 mb-2" />
               <p className="text-sm font-medium">Henüz kayıtlı adres yok</p>
               <p className="text-xs mt-1 text-slate-400/80">Yukarıdaki arama çubuğunu kullanarak ilk adresinizi kaydedebilirsiniz.</p>
             </div>
+          ) : filteredAddresses.length === 0 ? (
+            <div className="text-center py-8 px-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-150 text-slate-400 animate-fade-in">
+              <AlertCircle className="h-7 w-7 mx-auto text-indigo-400 mb-2" />
+              <p className="text-xs font-semibold text-slate-700">Aramanızla eşleşen kayıtlı adres bulunamadı.</p>
+              <button
+                id="reset-search-no-results-btn"
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="mt-2 text-xs font-bold text-indigo-600 hover:text-indigo-700 underline cursor-pointer bg-indigo-50/50 hover:bg-indigo-100/60 px-3 py-1.5 rounded-lg border border-indigo-100 transition-all"
+              >
+                Aramayı Temizle
+              </button>
+            </div>
           ) : (
             <div className="space-y-2">
-              {savedAddresses.map((addr) => {
+              {filteredAddresses.map((addr) => {
                 const isSelected = selectedIds.includes(addr.id);
                 const selectIndex = selectedIds.indexOf(addr.id);
 
