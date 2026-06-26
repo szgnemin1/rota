@@ -1,0 +1,6 @@
+{
+  "name": "RotaPlan: Google Haritalar Rota Planlayici",
+  "description": "Google Haritalar uzerinden canli arama yapabilen, adres kaydedebilen, kayitli adreslerden rota olusturabilen ve bu rotalari telefonunuza gonderebilen mobil uyumlu rota planlayicisi.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
