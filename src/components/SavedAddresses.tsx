@@ -91,35 +91,97 @@ export default function SavedAddresses({
         let foundLabelCol = "";
         let foundAddrCol = "";
 
+        // First, check for exact/strong matches to avoid any overlap or incorrect overwriting
         for (const key of firstRowKeys) {
           const lowerKey = key.toLowerCase().trim();
+          
+          // Address column matches (strongest first)
           if (
-            lowerKey.includes('işyeri unvanı') || 
-            lowerKey.includes('isyeri unvani') || 
-            lowerKey.includes('unvan') || 
-            lowerKey.includes('isim') || 
-            lowerKey.includes('başlık') || 
-            lowerKey.includes('baslik') || 
-            lowerKey.includes('label') || 
-            lowerKey.includes('title') ||
-            lowerKey.includes('ad')
-          ) {
-            foundLabelCol = key;
-          }
-          if (
-            lowerKey.includes('adres') || 
-            lowerKey.includes('link') || 
-            lowerKey.includes('konum') || 
-            lowerKey.includes('url') || 
-            lowerKey.includes('koordinat') || 
-            lowerKey.includes('address')
+            lowerKey === 'adres' || 
+            lowerKey === 'address' || 
+            lowerKey === 'link' || 
+            lowerKey === 'konum' || 
+            lowerKey === 'url' || 
+            lowerKey === 'harita' || 
+            lowerKey === 'koordinat'
           ) {
             foundAddrCol = key;
           }
+          // Label column matches (strongest first)
+          else if (
+            lowerKey === 'işyeri unvanı' || 
+            lowerKey === 'isyeri unvani' || 
+            lowerKey === 'unvan' || 
+            lowerKey === 'unvanı' || 
+            lowerKey === 'unvani' || 
+            lowerKey === 'firma' || 
+            lowerKey === 'firma adı' || 
+            lowerKey === 'firma adi' || 
+            lowerKey === 'başlık' || 
+            lowerKey === 'baslik' || 
+            lowerKey === 'label' || 
+            lowerKey === 'title' || 
+            lowerKey === 'isim' || 
+            lowerKey === 'ad' || 
+            lowerKey === 'adı' || 
+            lowerKey === 'adi'
+          ) {
+            foundLabelCol = key;
+          }
         }
 
-        if (!foundLabelCol && firstRowKeys.length > 0) foundLabelCol = firstRowKeys[0];
-        if (!foundAddrCol && firstRowKeys.length > 1) foundAddrCol = firstRowKeys[1];
+        // Fallback to fuzzy substring matches only if they weren't found by exact match
+        if (!foundLabelCol || !foundAddrCol) {
+          for (const key of firstRowKeys) {
+            const lowerKey = key.toLowerCase().trim();
+            
+            // Skip columns already assigned
+            if (key === foundLabelCol || key === foundAddrCol) continue;
+
+            if (!foundAddrCol) {
+              if (
+                lowerKey.includes('adres') || 
+                lowerKey.includes('link') || 
+                lowerKey.includes('konum') || 
+                lowerKey.includes('url') || 
+                lowerKey.includes('koordinat') || 
+                lowerKey.includes('address')
+              ) {
+                foundAddrCol = key;
+                continue;
+              }
+            }
+
+            if (!foundLabelCol) {
+              if (
+                lowerKey.includes('unvan') || 
+                lowerKey.includes('isim') || 
+                lowerKey.includes('başlık') || 
+                lowerKey.includes('baslik') || 
+                lowerKey.includes('label') || 
+                lowerKey.includes('title') ||
+                lowerKey.includes('firma') ||
+                lowerKey.includes('işyeri') ||
+                lowerKey.includes('isyeri') ||
+                lowerKey === 'ad' ||
+                lowerKey === 'adı' ||
+                lowerKey === 'adi'
+              ) {
+                foundLabelCol = key;
+              }
+            }
+          }
+        }
+
+        // Ultimate fallback
+        if (!foundLabelCol && firstRowKeys.length > 0) {
+          const nonAddrKey = firstRowKeys.find(k => k !== foundAddrCol);
+          foundLabelCol = nonAddrKey || firstRowKeys[0];
+        }
+        if (!foundAddrCol && firstRowKeys.length > 0) {
+          const nonLabelKey = firstRowKeys.find(k => k !== foundLabelCol);
+          foundAddrCol = nonLabelKey || (firstRowKeys[1] || firstRowKeys[0]);
+        }
 
         if (!foundLabelCol || !foundAddrCol) {
           setImportStatus('failed');
