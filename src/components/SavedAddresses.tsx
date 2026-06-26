@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { SavedAddress, RouteStop } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
-import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation } from 'lucide-react';
+import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface SavedAddressesProps {
   savedAddresses: SavedAddress[];
   onAddAddress: (address: SavedAddress) => void;
+  onAddAddressesBulk: (addresses: SavedAddress[]) => void;
   onDeleteAddress: (id: string) => void;
   onSelectOnMap: (address: SavedAddress) => void;
   prefilledAddress?: { address: string; lat: number; lng: number } | null;
@@ -19,6 +21,7 @@ interface SavedAddressesProps {
 export default function SavedAddresses({
   savedAddresses,
   onAddAddress,
+  onAddAddressesBulk,
   onDeleteAddress,
   onSelectOnMap,
   prefilledAddress,
@@ -41,6 +44,275 @@ export default function SavedAddresses({
   // States for multi route selection
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Excel Import States
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelRows, setExcelRows] = useState<any[]>([]);
+  const [matchedColumns, setMatchedColumns] = useState<{ labelCol: string; addrCol: string } | null>(null);
+  const [importStatus, setImportStatus] = useState<'idle' | 'parsing' | 'resolving' | 'completed' | 'failed'>('idle');
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0, successCount: 0, failCount: 0 });
+  const [importLog, setImportLog] = useState<string>('');
+  const [resolvedAddresses, setResolvedAddresses] = useState<SavedAddress[]>([]);
+
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processExcelFile(file);
+  };
+
+  const processExcelFile = (file: File) => {
+    setExcelFile(file);
+    setImportStatus('parsing');
+    setImportLog('');
+    setExcelRows([]);
+    setMatchedColumns(null);
+    setResolvedAddresses([]);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+        if (jsonData.length === 0) {
+          setImportStatus('failed');
+          setImportLog('Dosya boş veya okunamadı.');
+          return;
+        }
+
+        // Find columns matching "İşyeri Unvanı" and "ADRES"
+        const firstRowKeys = Object.keys(jsonData[0]);
+        let foundLabelCol = "";
+        let foundAddrCol = "";
+
+        for (const key of firstRowKeys) {
+          const lowerKey = key.toLowerCase().trim();
+          if (
+            lowerKey.includes('işyeri unvanı') || 
+            lowerKey.includes('isyeri unvani') || 
+            lowerKey.includes('unvan') || 
+            lowerKey.includes('isim') || 
+            lowerKey.includes('başlık') || 
+            lowerKey.includes('baslik') || 
+            lowerKey.includes('label') || 
+            lowerKey.includes('title') ||
+            lowerKey.includes('ad')
+          ) {
+            foundLabelCol = key;
+          }
+          if (
+            lowerKey.includes('adres') || 
+            lowerKey.includes('link') || 
+            lowerKey.includes('konum') || 
+            lowerKey.includes('url') || 
+            lowerKey.includes('koordinat') || 
+            lowerKey.includes('address')
+          ) {
+            foundAddrCol = key;
+          }
+        }
+
+        if (!foundLabelCol && firstRowKeys.length > 0) foundLabelCol = firstRowKeys[0];
+        if (!foundAddrCol && firstRowKeys.length > 1) foundAddrCol = firstRowKeys[1];
+
+        if (!foundLabelCol || !foundAddrCol) {
+          setImportStatus('failed');
+          setImportLog('Gerekli sütunlar (İşyeri Unvanı ve ADRES) bulunamadı.');
+          return;
+        }
+
+        setMatchedColumns({ labelCol: foundLabelCol, addrCol: foundAddrCol });
+
+        const mappedRows = jsonData.map((row, index) => {
+          const labelVal = String(row[foundLabelCol] || '').trim();
+          const addrVal = String(row[foundAddrCol] || '').trim();
+
+          return {
+            index,
+            label: labelVal || `İsimsiz Adres ${index + 1}`,
+            addressInput: addrVal,
+            status: 'pending' as 'pending' | 'resolving' | 'success' | 'failed',
+            error: '',
+            resolved: null as SavedAddress | null
+          };
+        }).filter(r => r.addressInput);
+
+        setExcelRows(mappedRows);
+        setImportStatus('idle');
+        setImportProgress({ current: 0, total: mappedRows.length, successCount: 0, failCount: 0 });
+        setImportLog(`Başarıyla okundu. ${mappedRows.length} adet adres kaydı tespit edildi.\nEşleşen Sütunlar:\n- Başlık/Unvan: [${foundLabelCol}]\n- Adres/Link: [${foundAddrCol}]`);
+      } catch (err: any) {
+        setImportStatus('failed');
+        setImportLog(`Dosya ayrıştırma hatası: ${err.message}`);
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+  };
+
+  const startAddressResolution = async () => {
+    if (excelRows.length === 0) return;
+
+    setImportStatus('resolving');
+    setImportLog(prev => prev + `\n\n[▶] Adres çözümleme işlemi başlatılıyor...`);
+
+    const updatedRows = [...excelRows];
+    const successes: SavedAddress[] = [];
+    const token = localStorage.getItem('rotaplan_auth_token') || '';
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < updatedRows.length; i++) {
+      const row = updatedRows[i];
+      updatedRows[i] = { ...row, status: 'resolving' };
+      setExcelRows([...updatedRows]);
+      setImportProgress(prev => ({ ...prev, current: i + 1 }));
+
+      const query = row.addressInput;
+      let lat = 0;
+      let lng = 0;
+      let addressString = "";
+      let resolveSuccess = false;
+      let errorMsg = "";
+
+      if (query.startsWith('http://') || query.startsWith('https://')) {
+        try {
+          const res = await fetch(`/api/resolve-maps-url?url=${encodeURIComponent(query)}`, {
+            headers: { 'X-App-Token': token }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success) {
+              lat = data.lat;
+              lng = data.lng;
+              addressString = data.address;
+              resolveSuccess = true;
+            } else {
+              errorMsg = "Harita linki çözümlenemedi.";
+            }
+          } else {
+            errorMsg = "Sunucu harita linkini çözümleyemedi.";
+          }
+        } catch (err: any) {
+          errorMsg = `Bağlantı hatası: ${err.message}`;
+        }
+      } else {
+        const coordRegex = /^\s*(-?\d+(\.\d+)?)\s*[\s,;:\/]\s*(-?\d+(\.\d+)?)\s*$/;
+        const coordMatch = query.match(coordRegex);
+
+        if (coordMatch) {
+          const parsedLat = parseFloat(coordMatch[1]);
+          const parsedLng = parseFloat(coordMatch[3]);
+          if (parsedLat >= -90 && parsedLat <= 90 && parsedLng >= -180 && parsedLng <= 180) {
+            lat = parsedLat;
+            lng = parsedLng;
+            addressString = `Koordinat Noktası (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+            
+            try {
+              const rRes = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=tr`, {
+                headers: { 'User-Agent': 'RotaPlan-ExcelImport/1.0' }
+              });
+              if (rRes.ok) {
+                const rData = await rRes.json();
+                if (rData && rData.display_name) {
+                  addressString = rData.display_name;
+                }
+              }
+            } catch (geoErr) {
+              // Ignore
+            }
+            resolveSuccess = true;
+          } else {
+            errorMsg = "Geçersiz koordinat değerleri.";
+          }
+        } else {
+          try {
+            const searchQ = query.toLowerCase().includes('bursa') ? query : `${query}, bursa`;
+            const sRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQ)}&limit=1&accept-language=tr`, {
+              headers: { 'User-Agent': 'RotaPlan-ExcelImport/1.0' }
+            });
+            if (sRes.ok) {
+              const sData = await sRes.json();
+              if (sData && sData.length > 0) {
+                const item = sData[0];
+                lat = parseFloat(item.lat);
+                lng = parseFloat(item.lon);
+                addressString = item.display_name;
+                resolveSuccess = true;
+              } else {
+                errorMsg = "Konum bulunamadı.";
+              }
+            } else {
+              errorMsg = "Arama servisi yanıt vermedi.";
+            }
+          } catch (err: any) {
+            errorMsg = `Bağlantı hatası: ${err.message}`;
+          }
+        }
+      }
+
+      if (resolveSuccess) {
+        successCount++;
+        const newAddr: SavedAddress = {
+          id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
+          label: row.label,
+          address: addressString,
+          lat,
+          lng
+        };
+        successes.push(newAddr);
+        updatedRows[i] = {
+          ...row,
+          status: 'success',
+          resolved: newAddr
+        };
+        setImportLog(prev => prev + `\n[✔️] Başarılı: "${row.label}" -> ${addressString.slice(0, 45)}...`);
+      } else {
+        failCount++;
+        updatedRows[i] = {
+          ...row,
+          status: 'failed',
+          error: errorMsg
+        };
+        setImportLog(prev => prev + `\n[❌] Hata: "${row.label}" (${query.slice(0, 30)}...) -> ${errorMsg}`);
+      }
+
+      setExcelRows([...updatedRows]);
+      setImportProgress(prev => ({
+        ...prev,
+        successCount,
+        failCount
+      }));
+
+      await delay(600);
+    }
+
+    setResolvedAddresses(successes);
+    setImportStatus('completed');
+    setImportLog(prev => prev + `\n\n[🏁] İşlem Tamamlandı!\nToplam: ${updatedRows.length} | Başarılı: ${successCount} | Başarısız: ${failCount}`);
+  };
+
+  const saveImportedAddresses = () => {
+    if (resolvedAddresses.length === 0) return;
+    onAddAddressesBulk(resolvedAddresses);
+    setShowExcelModal(false);
+    
+    setExcelFile(null);
+    setExcelRows([]);
+    setMatchedColumns(null);
+    setImportStatus('idle');
+    setResolvedAddresses([]);
+
+    setSuccessMessage(`${resolvedAddresses.length} adet adres başarıyla toplu olarak kaydedildi!`);
+    setTimeout(() => setSuccessMessage(''), 3000);
+  };
 
   // Handle auto-populating from map clicks
   React.useEffect(() => {
@@ -251,57 +523,78 @@ export default function SavedAddresses({
       {/* Scrollable Container */}
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         {/* Save Address Form */}
-        <form onSubmit={handleSave} className="bg-slate-50/70 rounded-xl p-4 border border-slate-100 space-y-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Yeni Adres Ekle</h3>
-          
-          <div className="space-y-2">
-            <label className="block text-xs font-medium text-slate-600">Adres Ara</label>
-            <PlaceSearchBox
-              id="new-address-search"
-              placeholder="Haritada arayıp seçin..."
-              onPlaceSelected={handlePlaceSelect}
-              initialValue={selectedPlace ? selectedPlace.address : ""}
-            />
+        <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-100 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Yeni Adres Ekle</h3>
+            <button
+              id="trigger-excel-modal-btn"
+              type="button"
+              onClick={() => {
+                setShowExcelModal(true);
+                setExcelFile(null);
+                setExcelRows([]);
+                setMatchedColumns(null);
+                setImportStatus('idle');
+                setResolvedAddresses([]);
+                setImportLog('');
+              }}
+              className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 px-2.5 py-1.5 rounded-lg border border-emerald-200/50 transition-colors cursor-pointer shadow-sm"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+              Excel'den Yükle
+            </button>
           </div>
-
-          {selectedPlace && (
-            <div className="space-y-3 pt-1">
-              <div className="text-xs text-slate-500 bg-white border border-slate-100 p-2.5 rounded-lg">
-                <span className="font-semibold text-slate-700">Bulunan Adres: </span>
-                {selectedPlace.address}
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Adres İsmi / Etiketi</label>
-                <input
-                  id="new-address-label"
-                  type="text"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  placeholder="örn. Ev, Merkez Depo, İzmir Ofis"
-                  className="block w-full text-sm px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
-                  required
-                />
-              </div>
-
-              <button
-                id="save-address-submit"
-                type="submit"
-                className="w-full flex items-center justify-center gap-1.5 py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg shadow-sm hover:shadow transition-all duration-150"
-              >
-                <Plus className="h-4 w-4" />
-                Adres Defterine Kaydet
-              </button>
+          
+          <form onSubmit={handleSave} className="space-y-3 pt-1">
+            <div className="space-y-2">
+              <label className="block text-xs font-medium text-slate-600">Adres Ara</label>
+              <PlaceSearchBox
+                id="new-address-search"
+                placeholder="Haritada arayıp seçin..."
+                onPlaceSelected={handlePlaceSelect}
+                initialValue={selectedPlace ? selectedPlace.address : ""}
+              />
             </div>
-          )}
 
-          {successMessage && (
-            <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-150 p-2 rounded-lg animate-pulse">
-              <CheckCircle className="h-4 w-4 shrink-0" />
-              {successMessage}
-            </div>
-          )}
-        </form>
+            {selectedPlace && (
+              <div className="space-y-3 pt-1">
+                <div className="text-xs text-slate-500 bg-white border border-slate-100 p-2.5 rounded-lg">
+                  <span className="font-semibold text-slate-700">Bulunan Adres: </span>
+                  {selectedPlace.address}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Adres İsmi / Etiketi</label>
+                  <input
+                    id="new-address-label"
+                    type="text"
+                    value={label}
+                    onChange={(e) => setLabel(e.target.value)}
+                    placeholder="örn. Ev, Merkez Depo, İzmir Ofis"
+                    className="block w-full text-sm px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
+                    required
+                  />
+                </div>
+
+                <button
+                  id="save-address-submit"
+                  type="submit"
+                  className="w-full flex items-center justify-center gap-1.5 py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg shadow-sm hover:shadow transition-all duration-150"
+                >
+                  <Plus className="h-4 w-4" />
+                  Adres Defterine Kaydet
+                </button>
+              </div>
+            )}
+
+            {successMessage && (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-150 p-2 rounded-lg animate-pulse">
+                <CheckCircle className="h-4 w-4 shrink-0" />
+                {successMessage}
+              </div>
+            )}
+          </form>
+        </div>
 
         {/* Multi Route Selection Tool Deck */}
         {savedAddresses.length > 0 && (
@@ -520,6 +813,245 @@ export default function SavedAddresses({
           )}
         </div>
       </div>
+
+      {/* EXCEL IMPORT MODAL */}
+      {showExcelModal && (
+        <div id="excel-import-modal" className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in select-none">
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[580px] border border-slate-100 animate-slide-up">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <FileSpreadsheet className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Excel / CSV ile Toplu Adres Yükle</h3>
+                  <p className="text-xs text-slate-500">Adreslerinizi tek tek yazmak yerine Excel tablonuzdan anında içeri aktarın</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (importStatus === 'resolving') {
+                    if (!confirm("Adres çözümleme işlemi devam ediyor. Çıkmak istediğinizden emin misiniz?")) return;
+                  }
+                  setShowExcelModal(false);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Content - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              
+              {/* Instructions and Mockup */}
+              {importStatus === 'idle' && excelRows.length === 0 && (
+                <div className="space-y-4">
+                  <div className="flex gap-3 p-4 bg-indigo-50/60 border border-indigo-100 text-indigo-900 text-xs rounded-2xl">
+                    <Info className="h-5 w-5 shrink-0 text-indigo-600 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-[13px]">Nasıl Çalışır?</p>
+                      <p className="leading-relaxed">
+                        Excel dosyanızda <strong className="font-bold text-indigo-700">İşyeri Unvanı</strong> ve <strong className="font-bold text-indigo-700">ADRES</strong> isimli iki sütun bulunmalıdır. ADRES sütununda Google Haritalar paylaşım linkleri (goo.gl, maps.app.goo.gl vb.), koordinat değerleri (örn. <code className="bg-white px-1 py-0.5 rounded border">40.182, 29.066</code>) veya açık adresler yer alabilir. Uygulama hepsini otomatik olarak çözerek harita üzerine yerleştirir.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Visual Example Table mockup */}
+                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50">
+                    <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                      <span>Örnek Excel Şablonu</span>
+                      <span className="text-emerald-600 font-semibold lowercase">(.xlsx veya .csv)</span>
+                    </div>
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-white border-b border-slate-200 text-slate-600 font-semibold">
+                          <th className="p-3 border-r border-slate-200">İşyeri Unvanı</th>
+                          <th className="p-3">ADRES</th>
+                        </tr>
+                      </thead>
+                      <tbody className="text-slate-500 font-mono">
+                        <tr className="border-b border-slate-150">
+                          <td className="p-3 bg-white border-r border-slate-200 text-slate-800 font-sans font-medium">Bursa Merkez Depo</td>
+                          <td className="p-3 bg-white text-blue-600 truncate max-w-[280px]">https://maps.app.goo.gl/abcdefg</td>
+                        </tr>
+                        <tr className="border-b border-slate-150">
+                          <td className="p-3 bg-white border-r border-slate-200 text-slate-800 font-sans font-medium">Nilüfer Bölge Bayii</td>
+                          <td className="p-3 bg-white text-slate-600">40.1983, 28.9812</td>
+                        </tr>
+                        <tr className="bg-slate-50/50">
+                          <td className="p-3 bg-white border-r border-slate-200 text-slate-800 font-sans font-medium">Osmangazi Mağazası</td>
+                          <td className="p-3 bg-white text-slate-600 font-sans">Bursa Kent Meydanı AVM önü</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload Drag Drop Area */}
+              {importStatus !== 'resolving' && importStatus !== 'completed' && (
+                <div className="border-2 border-dashed border-slate-200 hover:border-emerald-400 rounded-2xl p-8 text-center transition-all cursor-pointer relative bg-slate-50/50 hover:bg-emerald-50/5 group">
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={handleFileChange}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                  />
+                  <div className="p-3 bg-white shadow-sm border border-slate-100 rounded-2xl w-fit mx-auto mb-3 text-slate-400 group-hover:text-emerald-500 group-hover:scale-110 transition-all duration-150">
+                    <Upload className="h-6 w-6" />
+                  </div>
+                  <p className="text-sm font-bold text-slate-700">
+                    {excelFile ? `Seçilen Dosya: ${excelFile.name}` : "Excel veya CSV Dosyası Sürükleyin veya Tıklayın"}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1.5">Maksimum 5MB boyutunda .xlsx, .xls, .csv dosyaları desteklenir</p>
+                </div>
+              )}
+
+              {/* Error State parsing failure */}
+              {importStatus === 'failed' && (
+                <div className="flex gap-3 p-4 bg-rose-50 border border-rose-100 text-rose-800 text-xs rounded-xl items-start">
+                  <AlertCircle className="h-5 w-5 shrink-0 text-rose-600" />
+                  <div>
+                    <h4 className="font-bold text-rose-900 text-[13px] mb-0.5">Yükleme Başarısız</h4>
+                    <p>{importLog}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Parsed Rows Preview / Progress List */}
+              {excelRows.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between text-xs text-slate-500 font-semibold px-1">
+                    <span>Yüklenen Adresler ({excelRows.length} Adet)</span>
+                    {importStatus === 'resolving' && (
+                      <span className="text-indigo-600 flex items-center gap-1.5 font-bold">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Çözümleniyor... {importProgress.current} / {importProgress.total}
+                      </span>
+                    )}
+                    {importStatus === 'completed' && (
+                      <span className="text-emerald-600 font-bold bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-md">
+                        Çözümleme Tamamlandı!
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Progress Bar */}
+                  {importStatus === 'resolving' && (
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                      <div
+                        className="bg-indigo-600 h-full transition-all duration-200"
+                        style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                      ></div>
+                    </div>
+                  )}
+
+                  {/* Small Live Counts Row */}
+                  {(importStatus === 'resolving' || importStatus === 'completed') && (
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                        <span className="block text-[10px] uppercase font-bold text-slate-400">Toplam</span>
+                        <strong className="text-slate-700 text-sm">{importProgress.total}</strong>
+                      </div>
+                      <div className="bg-emerald-50/50 p-2 rounded-xl border border-emerald-100/60">
+                        <span className="block text-[10px] uppercase font-bold text-slate-400">Başarılı</span>
+                        <strong className="text-emerald-600 text-sm">{importProgress.successCount}</strong>
+                      </div>
+                      <div className="bg-rose-50/50 p-2 rounded-xl border border-rose-100/60">
+                        <span className="block text-[10px] uppercase font-bold text-slate-400">Hatalı</span>
+                        <strong className="text-rose-500 text-sm">{importProgress.failCount}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scrollable Table View */}
+                  <div className="border border-slate-100 rounded-2xl overflow-hidden max-h-[220px] overflow-y-auto bg-slate-50/30">
+                    <table className="w-full text-left border-collapse text-xs select-none">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100 text-slate-600 font-semibold">
+                          <th className="p-3 w-[150px]">İşyeri Unvanı</th>
+                          <th className="p-3">Adres / Girdi</th>
+                          <th className="p-3 text-right w-[110px]">Durum</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {excelRows.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3 font-semibold text-slate-800 max-w-[150px] truncate" title={row.label}>{row.label}</td>
+                            <td className="p-3 text-slate-500 truncate max-w-[220px]" title={row.addressInput}>{row.addressInput}</td>
+                            <td className="p-3 text-right">
+                              {row.status === 'pending' && <span className="text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full font-medium text-[10px]">Bekliyor</span>}
+                              {row.status === 'resolving' && (
+                                <span className="text-indigo-600 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-full font-bold text-[10px] flex items-center gap-1 justify-end">
+                                  <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                                  Aranıyor
+                                </span>
+                              )}
+                              {row.status === 'success' && <span className="text-emerald-700 bg-emerald-50 border border-emerald-150 px-2 py-0.5 rounded-full font-bold text-[10px]">✓ Başarılı</span>}
+                              {row.status === 'failed' && <span className="text-rose-700 bg-rose-50 border border-rose-150 px-2 py-0.5 rounded-full font-bold text-[10px]" title={row.error}>⚠ Hatalı</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Terminal Style Live Logs Container */}
+                  {importLog && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 px-1">Çözümleyici Log Çıktısı</span>
+                      <pre className="bg-slate-900 text-slate-300 p-4 rounded-xl text-[11px] font-mono leading-relaxed overflow-x-auto max-h-[110px] overflow-y-auto whitespace-pre-wrap border border-slate-800 shadow-inner">
+                        {importLog}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-5 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
+              <button
+                id="close-excel-modal-btn"
+                type="button"
+                disabled={importStatus === 'resolving'}
+                onClick={() => setShowExcelModal(false)}
+                className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-sm rounded-xl transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Vazgeç
+              </button>
+
+              {excelRows.length > 0 && importStatus === 'idle' && (
+                <button
+                  id="start-excel-resolution-btn"
+                  type="button"
+                  onClick={startAddressResolution}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5 animate-pulse"
+                >
+                  <Navigation className="h-4 w-4 shrink-0" />
+                  Adresleri Çözümlemeye Başla
+                </button>
+              )}
+
+              {importStatus === 'completed' && resolvedAddresses.length > 0 && (
+                <button
+                  id="save-excel-resolved-btn"
+                  type="button"
+                  onClick={saveImportedAddresses}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  Kayıtlı {resolvedAddresses.length} Adresi Deftere Ekle
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

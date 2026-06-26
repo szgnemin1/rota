@@ -194,6 +194,36 @@ export default function App() {
     }
   };
 
+  // Save multiple addresses to VDS (Bulk save)
+  const handleAddAddressesBulk = async (newAddresses: SavedAddress[]) => {
+    const token = localStorage.getItem('rotaplan_auth_token') || '';
+    const previousAddresses = [...savedAddresses];
+    // Optimistic UI update (prepend new addresses)
+    setSavedAddresses(prev => [...newAddresses, ...prev]);
+
+    try {
+      const res = await fetch('/api/addresses/bulk', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Token': token
+        },
+        body: JSON.stringify(newAddresses)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedAddresses(data.addresses);
+      } else {
+        // Rollback
+        setSavedAddresses(previousAddresses);
+        if (res.status === 401) handleLogout();
+      }
+    } catch (err) {
+      console.error("Toplu adres sunucuya kaydedilirken hata:", err);
+      setSavedAddresses(previousAddresses);
+    }
+  };
+
   // 7. Delete Address from VDS
   const handleDeleteAddress = async (id: string) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
@@ -422,6 +452,7 @@ export default function App() {
             <SavedAddresses
               savedAddresses={savedAddresses}
               onAddAddress={handleAddAddress}
+              onAddAddressesBulk={handleAddAddressesBulk}
               onDeleteAddress={handleDeleteAddress}
               onSelectOnMap={handleSelectOnMap}
               prefilledAddress={prefilledAddress}

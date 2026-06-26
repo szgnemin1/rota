@@ -187,6 +187,47 @@ async function startServer() {
     }
   });
 
+  // Save multiple addresses at once (Bulk save)
+  app.post("/api/addresses/bulk", authenticateToken, (req, res) => {
+    try {
+      const newAddresses = req.body;
+      if (!Array.isArray(newAddresses)) {
+        res.status(400).json({ error: "Geçersiz toplu veri formatı." });
+        return;
+      }
+
+      const validAddresses = newAddresses.filter(
+        (a: any) => a && a.id && a.label && typeof a.lat === "number" && typeof a.lng === "number"
+      );
+
+      if (validAddresses.length === 0) {
+        res.status(400).json({ error: "Kaydedilecek geçerli adres bulunamadı." });
+        return;
+      }
+
+      const data = fs.readFileSync(ADDRESS_FILE, "utf-8");
+      const addresses = JSON.parse(data);
+
+      for (const newAddr of validAddresses) {
+        // Prevent duplicates based on ID or very close coordinates + label
+        const existsIndex = addresses.findIndex(
+          (a: any) => a.id === newAddr.id || (a.label === newAddr.label && Math.abs(a.lat - newAddr.lat) < 0.0001 && Math.abs(a.lng - newAddr.lng) < 0.0001)
+        );
+        if (existsIndex > -1) {
+          addresses[existsIndex] = { ...addresses[existsIndex], ...newAddr };
+        } else {
+          addresses.unshift(newAddr);
+        }
+      }
+
+      fs.writeFileSync(ADDRESS_FILE, JSON.stringify(addresses, null, 2), "utf-8");
+      res.json({ success: true, addresses });
+    } catch (err: any) {
+      console.error("Bulk save addresses failed:", err);
+      res.status(500).json({ error: "Toplu adres kaydı başarısız oldu." });
+    }
+  });
+
   // Delete an address
   app.delete("/api/addresses/:id", authenticateToken, (req, res) => {
     try {
