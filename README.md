@@ -121,6 +121,25 @@ Uygulamanız artık tamamen hazır! Tarayıcınızdan doğrudan **`http://VDS_IP
 
 ---
 
+## ⚠️ Sık Karşılaşılan Sorunlar ve Çözümleri
+
+### 1. "Cannot find native binding" / "@tailwindcss/oxide" Hatası
+Eğer `npm run build` komutundan sonra şöyle bir hata alırsanız:
+```
+Error: Cannot find native binding. npm has a bug related to optional dependencies...
+at Object.<anonymous> (/root/rota/node_modules/@tailwindcss/oxide/index.js)
+```
+**Nedeni:** Tailwind CSS v4, işletim sistemine özel optimize edilmiş yerel (native) ikili dosyalar kullanır. Başka bir ortamdan kalan `node_modules` kopyalandığında veya npm paketi işletim sisteminizle (Debian/Ubuntu) tam eşleşmediğinde bu hata tetiklenir.
+
+**Kesin Çözümü (Tek Satır):**
+Aşağıdaki komutu kopyalayıp terminale yapıştırarak çalıştırın:
+```bash
+rm -rf node_modules package-lock.json && npm install --force && npm run build
+```
+Bu komut, tüm bağımlılıkları ve eski önbelleği temizleyerek VDS sunucunuzun mimarisine (x64/ARM vb.) en uygun yerel Tailwind ikili dosyalarını sıfırdan derler ve projeyi başarıyla ayağa kaldırır.
+
+---
+
 ## 🔄 Otomatik Güncelleme Kurulumu (Canlı Panel & update.sh)
 
 Arayüzdeki **Güncelleme (Yenile) Butonu** doğrudan VDS üzerindeki `update.sh` dosyasını tetikler. Bu betik GitHub'dan en güncel kodlarınızı çeker, derler ve PM2 servisini otomatik olarak yeniden başlatır.
