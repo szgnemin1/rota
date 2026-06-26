@@ -245,6 +245,42 @@ async function startServer() {
     }
   });
 
+  // Edit an address
+  app.put("/api/addresses/:id", authenticateToken, (req, res) => {
+    try {
+      const idToUpdate = req.params.id;
+      const { label, address, lat, lng } = req.body;
+
+      if (!label || !address || typeof lat !== "number" || typeof lng !== "number") {
+        res.status(400).json({ error: "Eksik veya geçersiz adres bilgileri." });
+        return;
+      }
+
+      const data = fs.readFileSync(ADDRESS_FILE, "utf-8");
+      const addresses = JSON.parse(data);
+
+      const index = addresses.findIndex((a: any) => a.id === idToUpdate);
+      if (index === -1) {
+        res.status(404).json({ error: "Düzenlenecek adres bulunamadı." });
+        return;
+      }
+
+      addresses[index] = {
+        ...addresses[index],
+        label,
+        address,
+        lat,
+        lng
+      };
+
+      fs.writeFileSync(ADDRESS_FILE, JSON.stringify(addresses, null, 2), "utf-8");
+      res.json({ success: true, addresses });
+    } catch (err: any) {
+      console.error("Update address failed:", err);
+      res.status(500).json({ error: "Adres güncellenemedi." });
+    }
+  });
+
 
   // --- REMOVED UPDATE TRIGGER FROM APP ---
   app.post("/api/update-app", authenticateToken, (req, res) => {

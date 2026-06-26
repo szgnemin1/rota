@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { SavedAddress, RouteStop } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
-import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X } from 'lucide-react';
+import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X, Edit, Crosshair } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface SavedAddressesProps {
   savedAddresses: SavedAddress[];
   onAddAddress: (address: SavedAddress) => void;
   onAddAddressesBulk: (addresses: SavedAddress[]) => void;
+  onUpdateAddress: (id: string, address: Omit<SavedAddress, 'id'>) => void;
   onDeleteAddress: (id: string) => void;
   onSelectOnMap: (address: SavedAddress) => void;
   prefilledAddress?: { address: string; lat: number; lng: number } | null;
@@ -22,6 +23,7 @@ export default function SavedAddresses({
   savedAddresses,
   onAddAddress,
   onAddAddressesBulk,
+  onUpdateAddress,
   onDeleteAddress,
   onSelectOnMap,
   prefilledAddress,
@@ -54,6 +56,148 @@ export default function SavedAddresses({
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0, successCount: 0, failCount: 0 });
   const [importLog, setImportLog] = useState<string>('');
   const [resolvedAddresses, setResolvedAddresses] = useState<SavedAddress[]>([]);
+
+  // Edit Address States
+  const [editingAddress, setEditingAddress] = useState<SavedAddress | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editAddressStr, setEditAddressStr] = useState('');
+  const [editLat, setEditLat] = useState<number>(0);
+  const [editLng, setEditLng] = useState<number>(0);
+  const [isLocating, setIsLocating] = useState(false);
+  const [isGeocodingText, setIsGeocodingText] = useState(false);
+  const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
+  const [editError, setEditError] = useState('');
+
+  const handleEditClick = (addr: SavedAddress) => {
+    setEditingAddress(addr);
+    setEditLabel(addr.label);
+    setEditAddressStr(addr.address);
+    setEditLat(addr.lat);
+    setEditLng(addr.lng);
+    setEditError('');
+  };
+
+  const handleUpdateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAddress) return;
+    if (!editLabel.trim() || !editAddressStr.trim()) {
+      setEditError("Lütfen unvan ve adres alanlarını doldurun.");
+      return;
+    }
+    if (isNaN(editLat) || isNaN(editLng) || editLat === 0 || editLng === 0) {
+      setEditError("Geçerli bir koordinat değeri gereklidir.");
+      return;
+    }
+
+    onUpdateAddress(editingAddress.id, {
+      label: editLabel.trim(),
+      address: editAddressStr.trim(),
+      lat: editLat,
+      lng: editLng
+    });
+
+    setEditingAddress(null);
+    setSuccessMessage("Adres başarıyla güncellendi!");
+    setTimeout(() => setSuccessMessage(''), 3000);
+  };
+
+  const handleDetectCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setEditError("Tarayıcınız konum tespitini desteklemiyor.");
+      return;
+    }
+    setIsLocating(true);
+    setEditError('');
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setEditLat(lat);
+        setEditLng(lng);
+        setEditAddressStr(`Tespit Edilen Konum (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+        
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=tr`, {
+            headers: { 'User-Agent': 'RotaPlan-AddressEdit/1.0' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.display_name) {
+              setEditAddressStr(data.display_name);
+            }
+          }
+        } catch (err) {
+          // Ignore reverse geocode error
+        } finally {
+          setIsLocating(false);
+        }
+      },
+      (error) => {
+        console.error("Konum tespiti hatası:", error);
+        setIsLocating(false);
+        if (error.code === error.PERMISSION_DENIED) {
+          setEditError("Konum izni reddedildi. Lütfen tarayıcı izinlerini kontrol edin.");
+        } else {
+          setEditError(`Konum tespiti başarısız oldu: ${error.message}`);
+        }
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  };
+
+  const handleGeocodeText = async () => {
+    if (!editAddressStr.trim()) return;
+    setIsGeocodingText(true);
+    setEditError('');
+    try {
+      const searchQ = editAddressStr.toLowerCase().includes('bursa') ? editAddressStr : `${editAddressStr}, bursa`;
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchQ)}&limit=1&accept-language=tr`, {
+        headers: { 'User-Agent': 'RotaPlan-AddressEdit/1.0' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const item = data[0];
+          setEditLat(parseFloat(item.lat));
+          setEditLng(parseFloat(item.lon));
+          setEditAddressStr(item.display_name);
+        } else {
+          setEditError("Girdiğiniz adres metnine ait bir konum bulunamadı.");
+        }
+      } else {
+        setEditError("Arama servisi şu an yanıt vermiyor.");
+      }
+    } catch (err: any) {
+      setEditError(`Bağlantı hatası: ${err.message}`);
+    } finally {
+      setIsGeocodingText(false);
+    }
+  };
+
+  const handleReverseGeocode = async () => {
+    if (editLat === 0 && editLng === 0) return;
+    setIsReverseGeocoding(true);
+    setEditError('');
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${editLat}&lon=${editLng}&addressdetails=1&accept-language=tr`, {
+        headers: { 'User-Agent': 'RotaPlan-AddressEdit/1.0' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.display_name) {
+          setEditAddressStr(data.display_name);
+        } else {
+          setEditError("Bu koordinatlara ait bir adres tarifi bulunamadı.");
+        }
+      } else {
+        setEditError("Adres çözümleme servisi şu an yanıt vermiyor.");
+      }
+    } catch (err: any) {
+      setEditError(`Bağlantı hatası: ${err.message}`);
+    } finally {
+      setIsReverseGeocoding(false);
+    }
+  };
 
   const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -808,18 +952,32 @@ export default function SavedAddresses({
                         </div>
                       </div>
 
-                      <button
-                        id={`delete-addr-${addr.id}`}
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation(); // Prevent card click
-                          onDeleteAddress(addr.id);
-                        }}
-                        className="absolute top-3 right-3 text-slate-300 hover:text-rose-500 p-1 rounded-md hover:bg-rose-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        title="Adresi Sil"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="absolute top-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-all">
+                        <button
+                          id={`edit-addr-${addr.id}`}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent card click
+                            handleEditClick(addr);
+                          }}
+                          className="text-slate-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
+                          title="Adresi Düzenle"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          id={`delete-addr-${addr.id}`}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent card click
+                            onDeleteAddress(addr.id);
+                          }}
+                          className="text-slate-400 hover:text-rose-500 p-1 rounded-md hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Adresi Sil"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Quick routing selectors from this address (Only visible if not in multi select mode) */}
@@ -1111,6 +1269,190 @@ export default function SavedAddresses({
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ADDRESS MODAL */}
+      {editingAddress && (
+        <div id="edit-address-modal" className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in select-none">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col border border-slate-100 animate-slide-up">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-100 text-indigo-700 rounded-xl">
+                  <Edit className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Adresi Düzenle</h3>
+                  <p className="text-xs text-slate-500">Unvan, adres metni veya koordinat değerlerini güncelleyin</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingAddress(null)}
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleUpdateSubmit} className="flex-1 flex flex-col">
+              <div className="p-6 space-y-4">
+                
+                {/* Error Alert */}
+                {editError && (
+                  <div className="flex gap-2.5 p-3 bg-rose-50 border border-rose-100 text-rose-800 text-xs rounded-xl items-start">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                    <p>{editError}</p>
+                  </div>
+                )}
+
+                {/* Label Field */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600">İşyeri Unvanı / Firma İsmi</label>
+                  <input
+                    type="text"
+                    value={editLabel}
+                    onChange={(e) => setEditLabel(e.target.value)}
+                    placeholder="örn. Bursa Merkez Ofis, Osmangazi Depo"
+                    className="block w-full text-sm px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 font-medium shadow-sm"
+                    required
+                  />
+                </div>
+
+                {/* Place Search Field */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-600">Haritada Yeni Yer Arayın (Otomatik)</label>
+                    <span className="text-[10px] text-slate-400">Tercihen</span>
+                  </div>
+                  <PlaceSearchBox
+                    id="edit-modal-search"
+                    placeholder="Haritada yeni bir yer arayıp seçin..."
+                    onPlaceSelected={(place) => {
+                      setEditAddressStr(place.address);
+                      setEditLat(place.lat);
+                      setEditLng(place.lng);
+                      setEditError('');
+                    }}
+                    initialValue=""
+                  />
+                </div>
+
+                {/* Address Text Field with Geocoding option */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600">Adres Tarifi / Metni</label>
+                  <div className="relative">
+                    <textarea
+                      value={editAddressStr}
+                      onChange={(e) => setEditAddressStr(e.target.value)}
+                      placeholder="Açık adres yazın..."
+                      rows={2}
+                      className="block w-full text-sm pl-3.5 pr-24 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 font-medium shadow-sm resize-none"
+                      required
+                    />
+                    <button
+                      type="button"
+                      disabled={isGeocodingText || !editAddressStr.trim()}
+                      onClick={handleGeocodeText}
+                      className="absolute right-2 bottom-2 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 disabled:bg-slate-50 text-indigo-600 text-[11px] font-bold rounded-lg border border-indigo-200/50 transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      {isGeocodingText ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Navigation className="h-3 w-3" />
+                      )}
+                      Haritada Bul
+                    </button>
+                  </div>
+                </div>
+
+                {/* Coordinates Field with Locating Options */}
+                <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Coğrafi Koordinatlar</span>
+                    <button
+                      type="button"
+                      disabled={isLocating}
+                      onClick={handleDetectCurrentLocation}
+                      className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 px-2.5 py-1.5 rounded-lg border border-emerald-200/50 transition-all cursor-pointer"
+                    >
+                      {isLocating ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Crosshair className="h-3.5 w-3.5" />
+                      )}
+                      Mevcut Konumumu Algıla
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 mt-2">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Enlem (Lat)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={editLat || ''}
+                        onChange={(e) => setEditLat(parseFloat(e.target.value))}
+                        placeholder="örn. 40.18"
+                        className="block w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-800"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Boylam (Lng)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={editLng || ''}
+                        onChange={(e) => setEditLng(parseFloat(e.target.value))}
+                        placeholder="örn. 29.06"
+                        className="block w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-slate-800"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {editLat !== 0 && editLng !== 0 && (
+                    <button
+                      type="button"
+                      disabled={isReverseGeocoding}
+                      onClick={handleReverseGeocode}
+                      className="mt-2.5 w-full flex items-center justify-center gap-1 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                    >
+                      {isReverseGeocoding ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <MapPin className="h-3 w-3 shrink-0" />
+                      )}
+                      Bu Koordinatlardan Adresi Çözümle (Ters Geocode)
+                    </button>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-5 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingAddress(null)}
+                  className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-sm rounded-xl transition-all cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  Değişiklikleri Kaydet
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

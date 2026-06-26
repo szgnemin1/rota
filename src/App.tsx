@@ -255,6 +255,37 @@ export default function App() {
     }
   };
 
+  // Update/Edit Address on VDS
+  const handleUpdateAddress = async (id: string, updatedAddr: Omit<SavedAddress, 'id'>) => {
+    const token = localStorage.getItem('rotaplan_auth_token') || '';
+    const previousAddresses = [...savedAddresses];
+    
+    // Optimistic UI update
+    setSavedAddresses(prev => prev.map(a => a.id === id ? { ...a, ...updatedAddr } : a));
+    
+    try {
+      const res = await fetch(`/api/addresses/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Token': token
+        },
+        body: JSON.stringify(updatedAddr)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedAddresses(data.addresses);
+      } else {
+        // Rollback
+        setSavedAddresses(previousAddresses);
+        if (res.status === 401) handleLogout();
+      }
+    } catch (err) {
+      console.error("Adres güncellenirken hata:", err);
+      setSavedAddresses(previousAddresses);
+    }
+  };
+
   const handleSelectOnMap = (address: SavedAddress) => {
     setSelectedAddressForMap(address);
     // Switch mobile view to Map
@@ -453,6 +484,7 @@ export default function App() {
               savedAddresses={savedAddresses}
               onAddAddress={handleAddAddress}
               onAddAddressesBulk={handleAddAddressesBulk}
+              onUpdateAddress={handleUpdateAddress}
               onDeleteAddress={handleDeleteAddress}
               onSelectOnMap={handleSelectOnMap}
               prefilledAddress={prefilledAddress}
