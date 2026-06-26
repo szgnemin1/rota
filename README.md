@@ -4,6 +4,8 @@ Bu proje, harita üzerinde çoklu durak rotaları oluşturmanıza, adreslerinizi
 
 Uygulama, Google Haritalar'ın link yönlendirme sınırlarını göz önünde bulundurarak akıllı bir biçimde tasarlanmıştır ve en güncel web teknolojilerini (React + Vite + Express + OpenStreetMap Reverse Geocoding) kullanır.
 
+Verileriniz doğrudan VDS üzerindeki güvenli yerel dosya sistemine (`data/addresses.json`) şifrelenmiş oturum kontrolleriyle kaydedilir.
+
 ---
 
 ## ✨ Öne Çıkan Özellikler
@@ -14,17 +16,18 @@ Uygulama, Google Haritalar'ın link yönlendirme sınırlarını göz önünde b
 - 🗂️ **Adres Defteri ve Kayıt**: Sık kullandığınız adresleri özelleştirilmiş isimlerle (Ev, İş, Müşteri vb.) kaydedin.
 - ⚡ **Çoklu Rota Sihirbazı (Tik ile Seçim)**: Kayıtlı onlarca adresiniz arasından gitmek istediğiniz yerleri istediğiniz sırayla seçerek anında en verimli rotayı tek tıkla oluşturun.
 - ⚠️ **Google Haritalar Durak Sınırı Kontrolü**: Google Haritalar'ın desteklediği maksimum 10 durak (Başlangıç + Varış + 8 Ara Durak) sınırını aşmamanız için akıllı uyarılar ve otomatik limit kontrolleri.
-- 🖥️ **Tam Duyarlı Mobil Tasarım**: Hem masaüstünde hem de mobil cihazlarda kusursuz kullanım deneyimi.
+- 🔒 **Yüksek Güvenlikli Giriş**: Kaba kuvvet (brute-force) saldırı korumalı, IP engelleme yetenekli ve oturum zaman aşımlı şifreli giriş paneli.
+- 🔄 **Canlı Uygulama Güncelleme**: Uygulama arayüzü üzerinden tek tıkla GitHub'daki en güncel kodları çekip otomatik derleme ve PM2 üzerinde yeniden başlatma.
 
 ---
 
 ## ⚙️ VDS (Ubuntu/Linux) Sunucu Kurulum Kılavuzu
 
-Uygulamayı kendi VDS sunucunuzda yayına almak ve kesintisiz çalışmasını sağlamak için aşağıdaki adımları sırasıyla uygulayabilirsiniz.
+Uygulamayı VDS sunucunuzda doğrudan istediğiniz port üzerinden çalıştırmak için aşağıdaki adımları uygulamanız yeterlidir.
 
 ### 1. Gerekli Sistem Paketlerinin Kurulumu
 
-VDS sunucunuza SSH ile bağlandıktan sonra sisteminizi güncelleyin ve **Node.js (v18+)**, **Nginx** ve **Git** paketlerini kurun:
+VDS sunucunuza SSH ile bağlandıktan sonra sisteminizi güncelleyin ve **Node.js (v18+)** ve **Git** paketlerini kurun:
 
 ```bash
 # Sistem paketlerini güncelle
@@ -32,22 +35,19 @@ sudo apt update && sudo apt upgrade -y
 
 # Node.js LTS sürümünü kur (NodeSource kullanarak)
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt install -y nodejs
+sudo apt install -y nodejs git
 
-# Nginx ve Git kur
-sudo apt install -y nginx git
-
-# Node.js ve npm sürümlerini doğrulayın
+# Sürümleri doğrulayın
 node -v
 npm -v
 ```
 
-### 2. Projenin GitHub'dan Çekilmesi ve Hazırlanması
+### 2. Projenin GitHub'dan Çekilmesi
 
 Projenizi sunucuya klonlayın ve bağımlılıkları yükleyin:
 
 ```bash
-# Projenin kurulacağı dizine gidin (genellikle /var/www)
+# Projenin kurulacağı dizine gidin (Örn: /var/www veya /home)
 cd /var/www
 
 # Projeyi GitHub'dan klonlayın
@@ -58,7 +58,7 @@ cd rota
 npm install
 ```
 
-### 3. Ortam Değişkenlerinin Ayarlanması
+### 3. Port ve Şifre Ayarlarının Yapılması (.env)
 
 Sunucuda `.env` dosyası oluşturun:
 
@@ -66,188 +66,97 @@ Sunucuda `.env` dosyası oluşturun:
 cp .env.example .env
 ```
 
-Ardından `.env` dosyasını bir metin editörü (örneğin `nano`) ile açarak gerekli düzenlemeleri yapın:
+Ardından `.env` dosyasını bir metin editörü (örneğin `nano`) ile açarak port, şifre ve güvenlik ayarlarını düzenleyin:
 ```bash
 nano .env
 ```
-*(Dosyayı kaydedip çıkmak için: `CTRL+O`, `Enter`, `CTRL+X`)*
+
+`.env` dosyasının içeriği aşağıdaki gibidir:
+```env
+# Sunucunun çalışacağı Port (İstediğiniz portu buraya yazın)
+PORT=3000
+
+# Panele giriş şifresi (Yüksek güvenlik için güçlü bir şifre belirleyin)
+APP_PASSWORD=Bursa16!
+
+# Güvenli oturum anahtarı (Rastgele ve uzun bir metin girin)
+SESSION_SECRET=bursa-rota-planlayici-guvenli-oturum-anahtari-16
+```
+*(Kaydedip çıkmak için: `CTRL+O`, `Enter`, `CTRL+X`)*
 
 ---
 
-### 4. Üretim (Production) Derlemesinin Alınması
+### 4. Projenin Derlenmesi (Production Build)
 
-Projenin istemci (React) ve sunucu (Express) kodlarını tek bir optimize edilmiş pakete dönüştürmek için derleme komutunu çalıştırın:
+React istemcisini ve Express sunucusunu üretim moduna derlemek için:
 
 ```bash
 npm run build
 ```
 
-Bu komut başarılı bir şekilde tamamlandığında istemci dosyalarını `dist/` klasörüne, çalıştırılabilir Node.js sunucusunu ise `dist/server.cjs` dosyasına derleyecektir.
+Bu komut bittiğinde dosyalarınız otomatik olarak derlenip `dist/` klasörüne hazır hale getirilir.
 
 ---
 
 ### 5. PM2 ile Uygulamayı Arka Planda Sürekli Çalıştırma
 
-Uygulamanın sunucu kapansa bile arka planda kesintisiz çalışması ve çökme durumlarında otomatik olarak yeniden başlatılması için **PM2** süreç yöneticisini kullanıyoruz:
+Uygulamanın sunucu kapansa bile seçtiğiniz portta kesintisiz çalışması ve çökme durumlarında otomatik olarak yeniden başlatılması için **PM2** kullanıyoruz:
 
 ```bash
-# PM2 global olarak kurun
+# PM2 süreç yöneticisini kurun
 sudo npm install -y -g pm2
 
 # Uygulamayı PM2 ile başlatın
 pm2 start dist/server.cjs --name "rotaplan"
 
-# Sunucu yeniden başladığında uygulamanın otomatik açılması için başlangıç betiğini yapılandırın
+# VDS yeniden başlasa bile uygulamanın otomatik açılması için:
 pm2 startup
-# (Yukarıdaki komut size çalıştırmanız için kalın yazılı bir komut verecektir, o komutu kopyalayıp yapıştırarak çalıştırın)
+# (Yukarıdaki komutun çıktı olarak verdiği kalın yazılı komutu kopyalayıp konsola yapıştırıp çalıştırın)
 
 # PM2 durumunu kaydedin
 pm2 save
 ```
 
----
-
-### 6. Nginx ve SSL (HTTPS) Yapılandırması
-
-Nginx kullanarak gelen web isteklerini PM2 üzerinde `3000` portunda çalışan uygulamamıza yönlendireceğiz.
-
-Yeni bir Nginx yapılandırma dosyası oluşturun:
-```bash
-sudo nano /etc/nginx/sites-available/rotaplan
-```
-
-Aşağıdaki yapılandırmayı yapıştırın (alan adınızı `alanadiniz.com` ile değiştirin):
-
-```nginx
-server {
-    listen 80;
-    server_name alanadiniz.com www.alanadiniz.com;
-
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-        
-        # Google Link çözümlemesi gibi uzun süren reverse-lookup işlemleri için zaman aşımlarını artırın
-        proxy_read_timeout 60s;
-        proxy_connect_timeout 60s;
-    }
-}
-```
-
-Yapılandırmayı etkinleştirin ve Nginx servisini yeniden başlatın:
-```bash
-# Sembiyotik link oluşturarak yapılandırmayı aktif edin
-sudo ln -s /etc/nginx/sites-available/rotaplan /etc/nginx/sites-enabled/
-
-# Nginx sözdizimi doğruluğunu kontrol edin
-sudo nginx -t
-
-# Nginx'i yeniden yükleyin
-sudo systemctl restart nginx
-```
-
-#### Ücretsiz SSL (Certbot / Let's Encrypt) Kurulumu:
-Sitenizin güvenli (https://) bağlantıya sahip olması için aşağıdaki adımlarla ücretsiz SSL sertifikası kurun:
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d alanadiniz.com -d www.alanadiniz.com
-```
-*Gelen yönergeleri takip ederek e-posta adresinizi girin ve yönlendirmeleri onaylayın. Certbot, Nginx dosyanızı otomatik olarak HTTPS'e güncelleyecektir.*
+Uygulamanız artık tamamen hazır! Tarayıcınızdan doğrudan **`http://VDS_IP_ADRESINIZ:PORT`** (Örn: `http://195.123.45.67:3000`) yazarak panelinize şifrenizle güvenle erişebilirsiniz.
 
 ---
 
-## 🔄 VDS Otomatik Güncelleme (CI/CD) Kurulumu
+## 🔄 Otomatik Güncelleme Kurulumu (Canlı Panel & update.sh)
 
-GitHub'da kodlarınızı güncellediğinizde VDS sunucunuzun otomatik olarak güncellenmesi için iki farklı yöntem kullanabilirsiniz:
+Arayüzdeki **Güncelleme (Yenile) Butonu** doğrudan VDS üzerindeki `update.sh` dosyasını tetikler. Bu betik GitHub'dan en güncel kodlarınızı çeker, derler ve PM2 servisini otomatik olarak yeniden başlatır.
 
-### Yöntem A: Manuel veya Zamanlanmış Tek Tıkla Güncelleme (`update.sh`)
-
-Sizin için hazırladığımız `update.sh` betiği, tek satır komutla en son güncellemeleri çekip derler ve sunucuyu sıfır kesintiyle yeniden başlatır.
-
-1. Dosyaya çalıştırma yetkisi verin:
-   ```bash
-   chmod +x update.sh
-   ```
-2. Güncelleme yapmak istediğinizde sadece şu komutu çalıştırmanız yeterlidir:
-   ```bash
-   ./update.sh
-   ```
-
-#### Otomatik Güncelleme Zamanlama (Cronjob):
-Eğer sunucunun her gece saat 04:00'te GitHub'dan değişiklikleri kontrol edip otomatik güncellenmesini istiyorsanız sisteme cronjob tanımlayabilirsiniz:
+### Güncelleme Betiğini Yetkilendirme:
+Otomatik güncellemenin sorunsuz çalışabilmesi için VDS sunucusunda `update.sh` dosyasına çalıştırma yetkisi verin:
 
 ```bash
-# Cron tablosunu düzenle
+cd /var/www/rota
+chmod +x update.sh
+```
+
+### Zamanlanmış Otomatik Güncelleme (Gece 04:00'te Kendi Kendine Güncelleme):
+Eğer güncelleme butonuna basmakla uğraşmak istemiyorsanız ve VDS'in her gece saat 04:00'te kodları GitHub'dan çekip otomatik güncellemesini istiyorsanız sistem crontab'ına ekleyebilirsiniz:
+
+```bash
 crontab -e
 ```
 
-Dosyanın en altına şu satırı ekleyin:
+Açılan dosyanın en altına şu satırı ekleyin:
 ```cron
 0 4 * * * /var/www/rota/update.sh >> /var/www/rota/update.log 2>&1
 ```
 
 ---
 
-### Yöntem B: GitHub Webhook ile Tam Otomatik Güncelleme
-
-Siz her `git push` yaptığınızda sunucunuzun anında güncellenmesini isterseniz, sunucuda basit bir webhook dinleyici kurabilirsiniz.
-
-1. **`webhook` paketini sunucuya kurun:**
-   ```bash
-   sudo apt install webhook
-   ```
-2. **Webhook yapılandırmasını oluşturun:**
-   ```bash
-   sudo nano /etc/webhook.conf
-   ```
-   Aşağıdaki JSON şablonunu girin:
-   ```json
-   [
-     {
-       "id": "github-update",
-       "execute-command": "/var/www/rota/update.sh",
-       "command-working-directory": "/var/www/rota",
-       "response-message": "Güncelleme başlatıldı..."
-     }
-   ]
-   ```
-3. **Webhook servisini arka planda başlatın:**
-   ```bash
-   sudo systemctl enable webhook
-   sudo systemctl start webhook
-   ```
-4. **GitHub Webhook Ayarı:**
-   GitHub deponuzda (szgnemin1/rota) -> **Settings** -> **Webhooks** -> **Add Webhook** yolunu izleyin:
-   - **Payload URL:** `http://alanadiniz.com:9000/hooks/github-update` *(veya IP adresinizle port `9000`'i harici erişime açarak)*
-   - **Content type:** `application/json`
-   - **Just the push event** seçip webhook'u kaydedin.
-
-Artık GitHub'a yeni kod gönderdiğiniz an sunucunuz sıfır kesintiyle kendini güncelleyecektir!
-
----
-
 ## 🛠️ Yerel Geliştirme (Local Development)
 
-Projeyi kendi bilgisayarınızda yerel olarak çalıştırmak istiyorsanız:
+Projeyi kendi bilgisayarınızda geliştirmek istiyorsanız:
 
 ```bash
-# Depoyu klonlayın ve dizine girin
-git clone https://github.com/szgnemin1/rota.git
-cd rota
-
-# Paketleri kurun
 npm install
-
-# Geliştirme (Development) sunucusunu başlatın
 npm run dev
 ```
 
-Uygulama tarayıcınızda `http://localhost:3000` adresinde çalışacaktır.
+Uygulama `http://localhost:3000` portunda çalışacaktır.
 
 ---
 

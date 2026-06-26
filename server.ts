@@ -7,11 +7,9 @@ import { createServer as createViteServer } from "vite";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
-
   app.use(express.json());
-
   // --- CONFIGURATION ---
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const APP_PASSWORD = process.env.APP_PASSWORD || "Bursa16!";
   const SESSION_SECRET = process.env.SESSION_SECRET || "bursa-rota-planlayici-guvenli-oturum-anahtari-16";
   const DATA_DIR = path.join(process.cwd(), "data");
