@@ -1,5 +1,8 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
+import crypto from "crypto";
+import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
 
 async function startServer() {
@@ -8,8 +11,238 @@ async function startServer() {
 
   app.use(express.json());
 
-  // API Route to resolve short Google Maps URLs to real coordinates and location names
-  app.get("/api/resolve-maps-url", async (req, res) => {
+  // --- CONFIGURATION ---
+  const APP_PASSWORD = process.env.APP_PASSWORD || "Bursa16!";
+  const SESSION_SECRET = process.env.SESSION_SECRET || "bursa-rota-planlayici-guvenli-oturum-anahtari-16";
+  const DATA_DIR = path.join(process.cwd(), "data");
+  const ADDRESS_FILE = path.join(DATA_DIR, "addresses.json");
+
+  // Ensure data directory and addresses file exist
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(ADDRESS_FILE)) {
+    fs.writeFileSync(ADDRESS_FILE, JSON.stringify([], null, 2), "utf-8");
+  }
+
+  // --- SECURITY: SESSION STORAGE & RATE LIMITING ---
+  // In-memory active sessions: token -> expiresAt
+  const activeSessions = new Map<string, number>();
+
+  // Brute-force protection map: ip -> { failedCount, blockUntil }
+  const bruteForceMap = new Map<string, { failedCount: number; blockUntil: number }>();
+
+  // Helper to hash password or token for comparison
+  function hashString(str: string): string {
+    return crypto.createHmac("sha256", SESSION_SECRET).update(str).digest("hex");
+  }
+
+  // Rate limiter middleware for login attempts
+  const loginRateLimiter = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "unknown";
+    const record = bruteForceMap.get(ip);
+    const now = Date.now();
+
+    if (record && record.blockUntil > now) {
+      const waitMinutes = Math.ceil((record.blockUntil - now) / 60000);
+      res.status(429).json({
+        error: `Çok fazla hatalı deneme yaptınız. Lütfen ${waitMinutes} dakika sonra tekrar deneyin.`
+      });
+      return;
+    }
+
+    next();
+  };
+
+  // Auth Middleware for API Protection
+  const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const token = req.headers["x-app-token"] as string;
+
+    if (!token) {
+      res.status(401).json({ error: "Giriş yapılması gerekiyor." });
+      return;
+    }
+
+    const expiry = activeSessions.get(token);
+    if (!expiry || expiry < Date.now()) {
+      // Clean up expired session
+      activeSessions.delete(token);
+      res.status(401).json({ error: "Oturum süreniz doldu. Lütfen tekrar giriş yapın." });
+      return;
+    }
+
+    // Refresh session expiry on active request (sliding expiration, 12 hours)
+    activeSessions.set(token, Date.now() + 12 * 60 * 60 * 1000);
+    next();
+  };
+
+
+  // --- SECURITY & AUTH ENDPOINTS ---
+
+  // Check current session validity
+  app.get("/api/auth/check", (req, res) => {
+    const token = req.headers["x-app-token"] as string;
+    if (token && activeSessions.has(token)) {
+      const expiry = activeSessions.get(token);
+      if (expiry && expiry > Date.now()) {
+        res.json({ valid: true });
+        return;
+      }
+    }
+    res.json({ valid: false });
+  });
+
+  // Login Endpoint with rate limit and secure token generation
+  app.post("/api/auth/login", loginRateLimiter, (req, res) => {
+    const { password } = req.body;
+    const ip = (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || "unknown";
+
+    if (!password) {
+      res.status(400).json({ error: "Şifre alanı boş bırakılamaz." });
+      return;
+    }
+
+    if (password === APP_PASSWORD) {
+      // Success! Clear any brute force record
+      bruteForceMap.delete(ip);
+
+      // Generate secure session token
+      const rawToken = crypto.randomBytes(32).toString("hex");
+      const sessionToken = hashString(rawToken);
+
+      // Store session for 12 hours
+      const expiresAt = Date.now() + 12 * 60 * 60 * 1000;
+      activeSessions.set(sessionToken, expiresAt);
+
+      res.json({ success: true, token: sessionToken });
+    } else {
+      // Failed attempt
+      const record = bruteForceMap.get(ip) || { failedCount: 0, blockUntil: 0 };
+      record.failedCount += 1;
+
+      if (record.failedCount >= 5) {
+        // Block for 15 minutes
+        record.blockUntil = Date.now() + 15 * 60 * 1000;
+        bruteForceMap.set(ip, record);
+        res.status(429).json({
+          error: "Çok fazla hatalı deneme! Girişiniz 15 dakika boyunca bloke edilmiştir."
+        });
+      } else {
+        bruteForceMap.set(ip, record);
+        const remaining = 5 - record.failedCount;
+        res.status(401).json({
+          error: `Hatalı şifre! Kalan deneme hakkınız: ${remaining}`
+        });
+      }
+    }
+  });
+
+  // Logout Endpoint
+  app.post("/api/auth/logout", (req, res) => {
+    const token = req.headers["x-app-token"] as string;
+    if (token) {
+      activeSessions.delete(token);
+    }
+    res.json({ success: true });
+  });
+
+
+  // --- ADDRESS PERSISTENCE ENDPOINTS (VDS File-based storage) ---
+
+  // Get all saved addresses
+  app.get("/api/addresses", authenticateToken, (req, res) => {
+    try {
+      const data = fs.readFileSync(ADDRESS_FILE, "utf-8");
+      const addresses = JSON.parse(data);
+      res.json(addresses);
+    } catch (err: any) {
+      console.error("Read addresses file failed:", err);
+      res.status(500).json({ error: "Adresler okunamadı." });
+    }
+  });
+
+  // Save a new address
+  app.post("/api/addresses", authenticateToken, (req, res) => {
+    try {
+      const newAddress = req.body;
+      if (!newAddress || !newAddress.id || !newAddress.label || !newAddress.lat || !newAddress.lng) {
+        res.status(400).json({ error: "Geçersiz adres verisi." });
+        return;
+      }
+
+      const data = fs.readFileSync(ADDRESS_FILE, "utf-8");
+      const addresses = JSON.parse(data);
+
+      // Check if already exists (prevent duplicates)
+      const existsIndex = addresses.findIndex((a: any) => a.id === newAddress.id);
+      if (existsIndex > -1) {
+        addresses[existsIndex] = newAddress;
+      } else {
+        addresses.unshift(newAddress); // Add to beginning of array
+      }
+
+      fs.writeFileSync(ADDRESS_FILE, JSON.stringify(addresses, null, 2), "utf-8");
+      res.json({ success: true, addresses });
+    } catch (err: any) {
+      console.error("Save address failed:", err);
+      res.status(500).json({ error: "Adres kaydedilemedi." });
+    }
+  });
+
+  // Delete an address
+  app.delete("/api/addresses/:id", authenticateToken, (req, res) => {
+    try {
+      const idToDelete = req.params.id;
+      const data = fs.readFileSync(ADDRESS_FILE, "utf-8");
+      const addresses = JSON.parse(data);
+
+      const filtered = addresses.filter((a: any) => a.id !== idToDelete);
+
+      fs.writeFileSync(ADDRESS_FILE, JSON.stringify(filtered, null, 2), "utf-8");
+      res.json({ success: true, addresses: filtered });
+    } catch (err: any) {
+      console.error("Delete address failed:", err);
+      res.status(500).json({ error: "Adres silinemedi." });
+    }
+  });
+
+
+  // --- REMOVED UPDATE TRIGGER FROM APP ---
+  app.post("/api/update-app", authenticateToken, (req, res) => {
+    const updateScript = path.join(process.cwd(), "update.sh");
+
+    if (!fs.existsSync(updateScript)) {
+      res.status(404).json({ error: "Güncelleme betiği (update.sh) sunucuda bulunamadı." });
+      return;
+    }
+
+    console.log("Starting remote application update execution...");
+    
+    // Execute update script asynchronously
+    exec(`bash "${updateScript}"`, (error, stdout, stderr) => {
+      if (error) {
+        console.error("Update execution failed:", error);
+        res.status(500).json({
+          success: false,
+          error: "Güncelleme işlemi hata ile sonuçlandı.",
+          log: stdout + "\n" + stderr + "\n" + error.message
+        });
+        return;
+      }
+
+      console.log("Update executed successfully!");
+      res.json({
+        success: true,
+        message: "Güncelleme başarıyla tetiklendi ve tamamlandı!",
+        log: stdout + (stderr ? "\n\nHatalar/Uyarılar:\n" + stderr : "")
+      });
+    });
+  });
+
+
+  // --- AKILLI HARİTA ÇÖZÜMLEME APISI (Protected) ---
+
+  app.get("/api/resolve-maps-url", authenticateToken, async (req, res) => {
     const mapUrlStr = req.query.url as string;
     if (!mapUrlStr) {
       res.status(400).json({ error: "URL parametresi eksik." });
@@ -33,11 +266,6 @@ async function startServer() {
       let lng = 0;
       let found = false;
 
-      // 1. Try parsing from redirected URL path or query params
-      // Match patterns:
-      // - @40.1826042,29.0660235
-      // - ?q=40.1826,29.0660
-      // - &ll=40.1826,29.0660
       const atMatch = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
       if (atMatch) {
         lat = parseFloat(atMatch[1]);
@@ -59,10 +287,8 @@ async function startServer() {
         }
       }
 
-      // Read HTML content to find titles or secondary metadata coordinates
       const html = await response.text();
 
-      // Extract title/place name
       let title = "";
       const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
       if (titleMatch) {
@@ -72,9 +298,7 @@ async function startServer() {
           .trim();
       }
 
-      // 2. If coords not found in URL yet, search inside HTML metadata
       if (!found) {
-        // Look for static map coordinates in HTML
         const staticMapMatch = html.match(/staticmap\?center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/) ||
                                html.match(/staticmap\?center=(-?\d+\.\d+),(-?\d+\.\d+)/);
         if (staticMapMatch) {
@@ -82,14 +306,12 @@ async function startServer() {
           lng = parseFloat(staticMapMatch[2]);
           found = true;
         } else {
-          // Look for og:url coordinates
           const ogUrlMatch = html.match(/meta property="og:url" content="[^"]*@(-?\d+\.\d+),(-?\d+\.\d+)/);
           if (ogUrlMatch) {
             lat = parseFloat(ogUrlMatch[1]);
             lng = parseFloat(ogUrlMatch[2]);
             found = true;
           } else {
-            // APP_INITIALIZATION_STATE array coordinates extraction
             const stateCoordsMatch = html.match(/window\.APP_INITIALIZATION_STATE\s*=\s*\[\[\[(-?\d+\.\d+),(-?\d+\.\d+)/) ||
                                      html.match(/\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)/);
             if (stateCoordsMatch) {
@@ -102,7 +324,6 @@ async function startServer() {
       }
 
       if (found && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-        // Let's do a quick reverse geocode to get a pretty Turkish address
         let resolvedAddress = title || "Haritadan Çözümlenen Konum";
         try {
           const rUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1&accept-language=tr`;
@@ -129,7 +350,6 @@ async function startServer() {
           lng
         });
       } else {
-        // Fallback: If we couldn't parse coordinates directly, let's use Nominatim search with the place name!
         if (title && title.length > 2) {
           console.log("No coordinates found in link, search-fetching via Nominatim:", title);
           const sUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(title + ", bursa")}&limit=1&accept-language=tr`;
@@ -162,7 +382,8 @@ async function startServer() {
     }
   });
 
-  // Serve static client assets / build output in production
+
+  // --- CLIENT SERVING ---
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -164,7 +164,12 @@ export default function PlaceSearchBox({
     if (isGoogleMapsLink) {
       try {
         const url = `/api/resolve-maps-url?url=${encodeURIComponent(query)}`;
-        const response = await fetch(url);
+        const token = localStorage.getItem('rotaplan_auth_token') || '';
+        const response = await fetch(url, {
+          headers: {
+            'X-App-Token': token
+          }
+        });
         if (!response.ok) throw new Error('API resolution error');
         const item = await response.json();
 
