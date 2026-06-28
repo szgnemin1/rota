@@ -94,6 +94,73 @@ export default function RoutePlanner({
     setRouteStops(updated);
   };
 
+  const handleSortStopsByDistance = () => {
+    const origin = routeStops.find(s => s.id === 'origin');
+    if (!origin || !origin.lat || !origin.lng) {
+      alert("Lütfen önce başlangıç noktası için geçerli bir adres girin veya haritadan seçin.");
+      return;
+    }
+
+    // Filter valid stops that have coordinates and are not the origin
+    const validOtherStops = routeStops.filter(s => s.id !== 'origin' && s.lat && s.lng);
+    const unplacedStops = routeStops.filter(s => s.id !== 'origin' && (!s.lat || !s.lng));
+
+    if (validOtherStops.length === 0) {
+      alert("Sıralanacak konum bilgisi olan başka bir durak bulunamadı.");
+      return;
+    }
+
+    // Haversine distance calculator
+    const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+      const R = 6371; // Earth radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    // Sort validOtherStops from nearest to farthest according to origin position
+    validOtherStops.sort((a, b) => {
+      const distA = getDistance(origin.lat, origin.lng, a.lat, a.lng);
+      const distB = getDistance(origin.lat, origin.lng, b.lat, b.lng);
+      return distA - distB;
+    });
+
+    // Reconstruct stops list
+    const sortedStops: RouteStop[] = [{ ...origin }];
+
+    validOtherStops.forEach((stop, idx) => {
+      const isLast = idx === validOtherStops.length - 1;
+      sortedStops.push({
+        id: isLast ? 'destination' : `waypoint-${Date.now()}-${idx}`,
+        label: stop.label,
+        address: stop.address,
+        lat: stop.lat,
+        lng: stop.lng,
+        isSaved: stop.isSaved
+      });
+    });
+
+    // Add back unplaced stops
+    unplacedStops.forEach((stop, idx) => {
+      sortedStops.push({
+        ...stop,
+        id: stop.id === 'destination' && !sortedStops.some(s => s.id === 'destination') ? 'destination' : `waypoint-empty-${idx}`
+      });
+    });
+
+    // Ensure we have a destination slot
+    if (!sortedStops.some(s => s.id === 'destination')) {
+      sortedStops.push({ id: 'destination', label: '', address: '', lat: 0, lng: 0 });
+    }
+
+    setRouteStops(sortedStops);
+  };
+
   // Generate Google Maps Directions link
   // Format: https://www.google.com/maps/dir/?api=1&origin=LAT,LNG&destination=LAT,LNG&waypoints=LAT1,LNG1%7CLAT2,LNG2&travelmode=driving
   const getMapsUrl = () => {
@@ -170,8 +237,32 @@ export default function RoutePlanner({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Stops editor list */}
         <div className="relative space-y-3">
+          {/* Action buttons above list: Swap and Sort */}
+          <div className="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-xl border border-slate-100">
+            <button
+              id="swap-route-stops-btn"
+              type="button"
+              onClick={handleSwapStops}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-800 text-xs font-semibold rounded-lg shadow-sm transition-all cursor-pointer"
+            >
+              <ArrowUpDown className="h-3.5 w-3.5 text-slate-500" />
+              Sıralamayı Ters Çevir
+            </button>
+
+            <button
+              id="sort-route-stops-btn"
+              type="button"
+              onClick={handleSortStopsByDistance}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 font-bold text-xs rounded-lg shadow-sm transition-all cursor-pointer"
+              title="Durakları başlangıç konumuna göre yakından uzağa sıralar"
+            >
+              <Navigation className="h-3.5 w-3.5 rotate-45 text-indigo-600" />
+              Yakından Uzağa Sırala
+            </button>
+          </div>
+
           {/* Vertical progress line between stops */}
-          <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-slate-100 -z-0 pointer-events-none" />
+          <div className="absolute left-6 top-16 bottom-8 w-0.5 bg-slate-100 -z-0 pointer-events-none" />
 
           {routeStops.map((stop, idx) => {
             const isOrigin = idx === 0;

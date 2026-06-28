@@ -17,6 +17,8 @@ interface SavedAddressesProps {
   setRouteStops: (stops: RouteStop[]) => void;
   setActiveTab: (tab: 'route' | 'saved') => void;
   setMobileTab: (tab: 'route' | 'saved' | 'map') => void;
+  showGroupCreationModal?: boolean;
+  setShowGroupCreationModal?: (show: boolean) => void;
 }
 
 export default function SavedAddresses({
@@ -31,7 +33,9 @@ export default function SavedAddresses({
   routeStops,
   setRouteStops,
   setActiveTab,
-  setMobileTab
+  setMobileTab,
+  showGroupCreationModal,
+  setShowGroupCreationModal
 }: SavedAddressesProps) {
   const [label, setLabel] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<{
@@ -46,6 +50,7 @@ export default function SavedAddresses({
   // States for multi route selection
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [autoSortByDistance, setAutoSortByDistance] = useState(true);
 
   // Excel Import States
   const [showExcelModal, setShowExcelModal] = useState(false);
@@ -68,6 +73,93 @@ export default function SavedAddresses({
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [editError, setEditError] = useState('');
 
+  // Category Grouping States
+  const [categoryInput, setCategoryInput] = useState('Genel');
+  const [customCategoryInput, setCustomCategoryInput] = useState('');
+  const [editCategory, setEditCategory] = useState('Genel');
+  const [editCustomCategory, setEditCustomCategory] = useState('');
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+
+  const [localShowGroupModal, setLocalShowGroupModal] = useState(false);
+  const isGroupModalOpen = showGroupCreationModal !== undefined ? showGroupCreationModal : localShowGroupModal;
+  const setIsGroupModalOpen = setShowGroupCreationModal !== undefined ? setShowGroupCreationModal : setLocalShowGroupModal;
+
+  // Group Creation Modal States
+  const [groupName, setGroupName] = useState('');
+  const [searchExistingQuery, setSearchExistingQuery] = useState('');
+  const [selectedExistingIds, setSelectedExistingIds] = useState<string[]>([]);
+  const [newGroupAddresses, setNewGroupAddresses] = useState<Array<{ label: string; address: string; lat: number; lng: number }>>([]);
+  const [currentSearchPlace, setCurrentSearchPlace] = useState<{ label: string; address: string; lat: number; lng: number } | null>(null);
+  const [currentSearchLabel, setCurrentSearchLabel] = useState('');
+  const [groupModalError, setGroupModalError] = useState('');
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
+
+  const filteredSavedAddressesForGroup = savedAddresses.filter(addr => {
+    const q = searchExistingQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (addr.label || '').toLowerCase().includes(q) || (addr.address || '').toLowerCase().includes(q);
+  });
+
+  const handleSaveGroup = async () => {
+    if (!groupName.trim()) {
+      setGroupModalError("Lütfen bir grup adı girin.");
+      return;
+    }
+    if (selectedExistingIds.length === 0 && newGroupAddresses.length === 0) {
+      setGroupModalError("Gruba eklemek için en az bir kayıtlı adres seçmeli veya arayıp eklemelisiniz.");
+      return;
+    }
+
+    setIsSavingGroup(true);
+    setGroupModalError('');
+
+    try {
+      // 1. Update existing selected addresses category
+      const existingToUpdate = savedAddresses.filter(a => selectedExistingIds.includes(a.id));
+      for (const addr of existingToUpdate) {
+        await onUpdateAddress(addr.id, {
+          label: addr.label,
+          address: addr.address,
+          lat: addr.lat,
+          lng: addr.lng,
+          category: groupName.trim()
+        });
+      }
+
+      // 2. Add new addresses bulk
+      if (newGroupAddresses.length > 0) {
+        const addressesWithCat = newGroupAddresses.map(addr => ({
+          id: `new-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+          label: addr.label.trim(),
+          address: addr.address.trim(),
+          lat: addr.lat,
+          lng: addr.lng,
+          category: groupName.trim()
+        }));
+        await onAddAddressesBulk(addressesWithCat);
+      }
+
+      // Reset states
+      setGroupName('');
+      setSearchExistingQuery('');
+      setSelectedExistingIds([]);
+      setNewGroupAddresses([]);
+      setCurrentSearchPlace(null);
+      setCurrentSearchLabel('');
+      setIsGroupModalOpen(false);
+
+      setSuccessMessage('Grup ve adresler başarıyla kaydedildi!');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err) {
+      console.error("Grup kaydedilirken hata:", err);
+      setGroupModalError("Grup kaydedilirken bir hata oluştu. Lütfen tekrar deneyin.");
+    } finally {
+      setIsSavingGroup(false);
+    }
+  };
+
+  const existingCategories = Array.from(new Set(savedAddresses.map(a => a.category || 'Genel')));
+
   // Search query state for saved addresses
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -83,6 +175,8 @@ export default function SavedAddresses({
     setEditAddressStr(addr.address);
     setEditLat(addr.lat);
     setEditLng(addr.lng);
+    setEditCategory(addr.category || 'Genel');
+    setEditCustomCategory('');
     setEditError('');
   };
 
@@ -98,11 +192,14 @@ export default function SavedAddresses({
       return;
     }
 
+    const finalCat = editCategory === 'custom' ? (editCustomCategory.trim() || 'Genel') : editCategory;
+
     onUpdateAddress(editingAddress.id, {
       label: editLabel.trim(),
       address: editAddressStr.trim(),
       lat: editLat,
-      lng: editLng
+      lng: editLng,
+      category: finalCat
     });
 
     setEditingAddress(null);
@@ -621,11 +718,38 @@ export default function SavedAddresses({
   const buildRouteFromSelected = () => {
     if (selectedIds.length === 0) return;
 
-    const selectedAddresses = selectedIds
+    let selectedAddresses = selectedIds
       .map(id => savedAddresses.find(a => a.id === id))
       .filter(Boolean) as SavedAddress[];
 
     if (selectedAddresses.length === 0) return;
+
+    // Helper to calculate distance
+    const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+      const R = 6371; // Earth radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    if (autoSortByDistance && selectedAddresses.length > 2) {
+      const first = selectedAddresses[0];
+      const others = selectedAddresses.slice(1);
+      
+      // Sort others by distance to first
+      others.sort((a, b) => {
+        const distA = getDistance(first.lat, first.lng, a.lat, a.lng);
+        const distB = getDistance(first.lat, first.lng, b.lat, b.lng);
+        return distA - distB;
+      });
+
+      selectedAddresses = [first, ...others];
+    }
 
     const newStops: RouteStop[] = [];
 
@@ -688,12 +812,15 @@ export default function SavedAddresses({
     e.preventDefault();
     if (!selectedPlace || !label.trim()) return;
 
+    const finalCategory = categoryInput === 'custom' ? (customCategoryInput.trim() || 'Genel') : categoryInput;
+
     const newAddress: SavedAddress = {
       id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 11),
       label: label.trim(),
       address: selectedPlace.address,
       lat: selectedPlace.lat,
-      lng: selectedPlace.lng
+      lng: selectedPlace.lng,
+      category: finalCategory
     };
 
     onAddAddress(newAddress);
@@ -701,6 +828,8 @@ export default function SavedAddresses({
     // Clear form
     setLabel('');
     setSelectedPlace(null);
+    setCategoryInput('Genel');
+    setCustomCategoryInput('');
     if (onClearPrefilledAddress) {
       onClearPrefilledAddress();
     }
@@ -722,6 +851,13 @@ export default function SavedAddresses({
     return <Bookmark className="h-4 w-4 text-blue-600" />;
   };
 
+  const toggleCategoryCollapse = (cat: string) => {
+    setCollapsedCategories(prev => ({
+      ...prev,
+      [cat]: !prev[cat]
+    }));
+  };
+
   return (
     <div id="saved-addresses-panel" className="flex flex-col h-full bg-white">
       {/* Header */}
@@ -730,9 +866,21 @@ export default function SavedAddresses({
           <Bookmark className="h-5 w-5 text-indigo-500 fill-indigo-100" />
           Kayıtlı Adreslerim
         </h2>
-        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
-          {savedAddresses.length} Adres
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            id="header-create-group-btn"
+            type="button"
+            onClick={() => setIsGroupModalOpen(true)}
+            className="flex items-center gap-1 text-[11px] font-extrabold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1.5 rounded-lg border border-indigo-200/50 transition-colors cursor-pointer shadow-sm"
+            title="Yeni Grup Oluştur"
+          >
+            <Plus className="h-3 w-3 shrink-0" />
+            Grup Oluştur
+          </button>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-100">
+            {savedAddresses.length} Adres
+          </span>
+        </div>
       </div>
 
       {/* Scrollable Container */}
@@ -789,6 +937,43 @@ export default function SavedAddresses({
                     className="block w-full text-sm px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
                     required
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Kategori / Grup</label>
+                  <div className="space-y-1.5">
+                    <select
+                      id="new-address-category-select"
+                      value={categoryInput}
+                      onChange={(e) => {
+                        setCategoryInput(e.target.value);
+                        if (e.target.value !== 'custom') {
+                          setCustomCategoryInput('');
+                        }
+                      }}
+                      className="block w-full text-sm px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 cursor-pointer"
+                    >
+                      <option value="Genel">Genel</option>
+                      <option value="Müşteriler">Müşteriler</option>
+                      <option value="Depolar">Depolar</option>
+                      <option value="Ev/İş">Ev/İş</option>
+                      {existingCategories.filter(c => !['Genel', 'Müşteriler', 'Depolar', 'Ev/İş'].includes(c)).map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                      <option value="custom">✍ Yeni Grup/Kategori Ekle...</option>
+                    </select>
+                    {categoryInput === 'custom' && (
+                      <input
+                        id="new-address-custom-category"
+                        type="text"
+                        value={customCategoryInput}
+                        onChange={(e) => setCustomCategoryInput(e.target.value)}
+                        placeholder="Grup ismi girin..."
+                        className="block w-full text-sm px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
+                        required
+                      />
+                    )}
+                  </div>
                 </div>
 
                 <button
@@ -872,6 +1057,19 @@ export default function SavedAddresses({
                       })}
                     </div>
 
+                    <div className="flex items-center gap-2 px-1 text-xs text-slate-600 font-medium select-none">
+                      <input
+                        id="auto-sort-by-distance-checkbox"
+                        type="checkbox"
+                        checked={autoSortByDistance}
+                        onChange={(e) => setAutoSortByDistance(e.target.checked)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer accent-indigo-600"
+                      />
+                      <label htmlFor="auto-sort-by-distance-checkbox" className="cursor-pointer">
+                        Başlangıca göre mesafeyle otomatik sırala (Yakından Uzağa)
+                      </label>
+                    </div>
+
                     <button
                       id="generate-route-from-selected-btn"
                       type="button"
@@ -950,129 +1148,205 @@ export default function SavedAddresses({
               </button>
             </div>
           ) : (
-            <div className="space-y-2">
-              {filteredAddresses.map((addr) => {
-                const isSelected = selectedIds.includes(addr.id);
-                const selectIndex = selectedIds.indexOf(addr.id);
-
+            <div className="space-y-4">
+              {Object.entries(
+                filteredAddresses.reduce((groups, addr) => {
+                  const cat = addr.category || 'Genel';
+                  if (!groups[cat]) {
+                    groups[cat] = [];
+                  }
+                  groups[cat].push(addr);
+                  return groups;
+                }, {} as Record<string, SavedAddress[]>)
+              ).map(([catName, addresses]) => {
+                const isCollapsed = !!collapsedCategories[catName];
                 return (
-                  <div
-                    id={`saved-addr-card-${addr.id}`}
-                    key={addr.id}
-                    onClick={() => handleCardClick(addr)}
-                    className={`group relative flex flex-col p-3 border rounded-xl transition-all duration-150 cursor-pointer ${
-                      isSelected
-                        ? 'bg-indigo-50/40 border-indigo-300 ring-1 ring-indigo-300 shadow-sm'
-                        : isMultiSelectMode
-                        ? 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/10'
-                        : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50/40'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-2.5 min-w-0 pr-8">
-                        {/* Circle Checkbox / Order Indicator or default Icon */}
+                  <div key={catName} className="space-y-2.5 border border-slate-100/70 rounded-2xl p-3 bg-slate-50/15">
+                    {/* Category Header */}
+                    <div className="w-full flex items-center justify-between py-1 px-1 text-xs font-bold border-b border-slate-100 pb-2 mb-1.5">
+                      <div className="flex items-center gap-2">
                         {isMultiSelectMode ? (
-                          <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border font-bold transition-all ${
-                            isSelected
-                              ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
-                              : 'bg-slate-50 border-slate-200 text-slate-400 group-hover:border-indigo-300'
-                          }`}>
-                            {isSelected ? (
-                              <span className="text-xs">{selectIndex + 1}</span>
-                            ) : (
-                              <Plus className="h-3.5 w-3.5" />
-                            )}
-                          </div>
+                          <input
+                            type="checkbox"
+                            checked={addresses.every(addr => selectedIds.includes(addr.id))}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              const addressIds = addresses.map(a => a.id);
+                              if (checked) {
+                                setSelectedIds(prev => {
+                                  const filteredPrev = prev.filter(id => !addressIds.includes(id));
+                                  return [...filteredPrev, ...addressIds];
+                                });
+                              } else {
+                                setSelectedIds(prev => prev.filter(id => !addressIds.includes(id)));
+                              }
+                            }}
+                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer mr-1 accent-indigo-600"
+                            title="Grubun tüm adreslerini seç veya kaldır"
+                          />
                         ) : (
-                          <div className="h-8 w-8 rounded-lg bg-slate-50 flex items-center justify-center shrink-0 border border-slate-100 group-hover:bg-indigo-50 group-hover:border-indigo-100 transition-colors">
-                            {getIcon(addr.label)}
-                          </div>
+                          <Bookmark className="h-3.5 w-3.5 fill-indigo-100/40 text-indigo-700 shrink-0" />
                         )}
-
-                        <div className="min-w-0">
-                          <h4 className="font-semibold text-slate-800 text-sm truncate">{addr.label}</h4>
-                          <p className="text-slate-500 text-xs truncate mt-0.5" title={addr.address}>
-                            {addr.address}
-                          </p>
-                          <div className="flex gap-2.5 mt-1 text-[10px] text-slate-400 font-mono">
-                            <span>Enl: {addr.lat.toFixed(4)}</span>
-                            <span>Boy: {addr.lng.toFixed(4)}</span>
-                          </div>
-                        </div>
+                        <span className="text-indigo-800 font-extrabold text-xs">{catName}</span>
+                        <span className="bg-indigo-50 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-indigo-100">
+                          {addresses.length} Adres
+                        </span>
                       </div>
-
-                      <div className="absolute top-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-all">
+                      
+                      <div className="flex items-center gap-2">
+                        {!isMultiSelectMode && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsMultiSelectMode(true);
+                              setSelectedIds(addresses.map(a => a.id));
+                            }}
+                            className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold px-2 py-0.5 rounded border border-indigo-200 cursor-pointer transition-all"
+                            title="Bu grubun tüm adreslerini rotaya eklemek için seç"
+                          >
+                            Grubu Seç
+                          </button>
+                        )}
                         <button
-                          id={`edit-addr-${addr.id}`}
                           type="button"
-                          onClick={(e) => {
-                            e.stopPropagation(); // Prevent card click
-                            handleEditClick(addr);
-                          }}
-                          className="text-slate-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
-                          title="Adresi Düzenle"
+                          onClick={() => toggleCategoryCollapse(catName)}
+                          className="text-slate-400 hover:text-slate-600 font-semibold text-[11px] flex items-center gap-1 cursor-pointer"
                         >
-                          <Edit className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          id={`delete-addr-${addr.id}`}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation(); // Prevent card click
-                            onDeleteAddress(addr.id);
-                          }}
-                          className="text-slate-400 hover:text-rose-500 p-1 rounded-md hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Adresi Sil"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {isCollapsed ? 'Göster ▼' : 'Gizle ▲'}
                         </button>
                       </div>
                     </div>
 
-                    {/* Quick routing selectors from this address (Only visible if not in multi select mode) */}
-                    {!isMultiSelectMode && (
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
-                        <button
-                          id={`set-origin-btn-${addr.id}`}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSetAsOrigin(addr);
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[10px] border border-emerald-200 transition-all cursor-pointer"
-                        >
-                          <Navigation className="h-3 w-3 shrink-0" />
-                          Başlangıç
-                        </button>
-                        <button
-                          id={`add-waypoint-btn-${addr.id}`}
-                          type="button"
-                          disabled={routeStops.length >= 10}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleAddAsWaypoint(addr);
-                          }}
-                          className={`flex items-center gap-1 px-2 py-1 rounded font-bold text-[10px] border transition-all ${
-                            routeStops.length >= 10
-                              ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
-                              : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 cursor-pointer'
-                          }`}
-                        >
-                          <Plus className="h-3 w-3 shrink-0" />
-                          Durak Ekle
-                        </button>
-                        <button
-                          id={`set-dest-btn-${addr.id}`}
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSetAsDestination(addr);
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] border border-rose-200 transition-all cursor-pointer"
-                        >
-                          <MapPin className="h-3 w-3 shrink-0" />
-                          Varış
-                        </button>
+                    {/* Category Contents */}
+                    {!isCollapsed && (
+                      <div className="space-y-2 pt-1 transition-all">
+                        {addresses.map((addr) => {
+                          const isSelected = selectedIds.includes(addr.id);
+                          const selectIndex = selectedIds.indexOf(addr.id);
+
+                          return (
+                            <div
+                              id={`saved-addr-card-${addr.id}`}
+                              key={addr.id}
+                              onClick={() => handleCardClick(addr)}
+                              className={`group relative flex flex-col p-3 border rounded-xl transition-all duration-150 cursor-pointer ${
+                                isSelected
+                                  ? 'bg-indigo-50/40 border-indigo-300 ring-1 ring-indigo-300 shadow-sm'
+                                  : isMultiSelectMode
+                                  ? 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/10'
+                                  : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50/40'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex items-start gap-2.5 min-w-0 pr-8">
+                                  {/* Circle Checkbox / Order Indicator or default Icon */}
+                                  {isMultiSelectMode ? (
+                                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 border font-bold transition-all ${
+                                      isSelected
+                                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm'
+                                        : 'bg-slate-50 border-slate-200 text-slate-400 group-hover:border-indigo-300'
+                                    }`}>
+                                      {isSelected ? (
+                                        <span className="text-xs">{selectIndex + 1}</span>
+                                      ) : (
+                                        <Plus className="h-3.5 w-3.5" />
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="h-8 w-8 rounded-lg bg-slate-50 flex items-center justify-center shrink-0 border border-slate-100 group-hover:bg-indigo-50 group-hover:border-indigo-100 transition-colors">
+                                      {getIcon(addr.label)}
+                                    </div>
+                                  )}
+
+                                  <div className="min-w-0">
+                                    <h4 className="font-semibold text-slate-800 text-sm truncate">{addr.label}</h4>
+                                    <p className="text-slate-500 text-xs truncate mt-0.5" title={addr.address}>
+                                      {addr.address}
+                                    </p>
+                                    <div className="flex gap-2.5 mt-1 text-[10px] text-slate-400 font-mono">
+                                      <span>Enl: {addr.lat.toFixed(4)}</span>
+                                      <span>Boy: {addr.lng.toFixed(4)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="absolute top-3 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-all">
+                                  <button
+                                    id={`edit-addr-${addr.id}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation(); // Prevent card click
+                                      handleEditClick(addr);
+                                    }}
+                                    className="text-slate-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-50 transition-colors cursor-pointer"
+                                    title="Adresi Düzenle"
+                                  >
+                                    <Edit className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    id={`delete-addr-${addr.id}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation(); // Prevent card click
+                                      onDeleteAddress(addr.id);
+                                    }}
+                                    className="text-slate-400 hover:text-rose-500 p-1 rounded-md hover:bg-rose-50 transition-colors cursor-pointer"
+                                    title="Adresi Sil"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Quick routing selectors from this address (Only visible if not in multi select mode) */}
+                              {!isMultiSelectMode && (
+                                <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap gap-1.5">
+                                  <button
+                                    id={`set-origin-btn-${addr.id}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSetAsOrigin(addr);
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[10px] border border-emerald-200 transition-all cursor-pointer"
+                                  >
+                                    <Navigation className="h-3 w-3 shrink-0" />
+                                    Başlangıç
+                                  </button>
+                                  <button
+                                    id={`add-waypoint-btn-${addr.id}`}
+                                    type="button"
+                                    disabled={routeStops.length >= 10}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleAddAsWaypoint(addr);
+                                    }}
+                                    className={`flex items-center gap-1 px-2 py-1 rounded font-bold text-[10px] border transition-all ${
+                                      routeStops.length >= 10
+                                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                                        : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 cursor-pointer'
+                                    }`}
+                                  >
+                                    <Plus className="h-3 w-3 shrink-0" />
+                                    Durak Ekle
+                                  </button>
+                                  <button
+                                    id={`set-dest-btn-${addr.id}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleSetAsDestination(addr);
+                                    }}
+                                    className="flex items-center gap-1 px-2 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] border border-rose-200 transition-all cursor-pointer"
+                                  >
+                                    <MapPin className="h-3 w-3 shrink-0" />
+                                    Varış
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1372,6 +1646,42 @@ export default function SavedAddresses({
                   />
                 </div>
 
+                {/* Category Field */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-600">Grup / Kategori</label>
+                  <div className="space-y-1.5">
+                    <select
+                      value={editCategory}
+                      onChange={(e) => {
+                        setEditCategory(e.target.value);
+                        if (e.target.value !== 'custom') {
+                          setEditCustomCategory('');
+                        }
+                      }}
+                      className="block w-full text-sm px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 font-medium shadow-sm cursor-pointer"
+                    >
+                      <option value="Genel">Genel</option>
+                      <option value="Müşteriler">Müşteriler</option>
+                      <option value="Depolar">Depolar</option>
+                      <option value="Ev/İş">Ev/İş</option>
+                      {existingCategories.filter(c => !['Genel', 'Müşteriler', 'Depolar', 'Ev/İş'].includes(c)).map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                      <option value="custom">✍ Yeni Grup/Kategori Ekle...</option>
+                    </select>
+                    {editCategory === 'custom' && (
+                      <input
+                        type="text"
+                        value={editCustomCategory}
+                        onChange={(e) => setEditCustomCategory(e.target.value)}
+                        placeholder="Grup ismi girin..."
+                        className="block w-full text-sm px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 font-medium shadow-sm"
+                        required
+                      />
+                    )}
+                  </div>
+                </div>
+
                 {/* Place Search Field */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
@@ -1502,6 +1812,307 @@ export default function SavedAddresses({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Group Creation Modal */}
+      {isGroupModalOpen && (
+        <div id="group-creation-modal-backdrop" className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-[9999] overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-2xl shadow-2xl border border-slate-100/80 overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50/40 to-white">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+                  <Bookmark className="h-5 w-5 text-indigo-600 fill-indigo-100/30" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 tracking-tight">Yeni Grup / Kategori Oluştur</h3>
+                  <p className="text-[11px] text-slate-400 font-medium">Yeni ve kayıtlı adresleri tek bir grupta toplayın</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGroupModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg transition-colors cursor-pointer"
+                title="Kapat"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {groupModalError && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200/50 text-rose-600 text-xs font-semibold rounded-2xl flex items-center gap-2 leading-relaxed animate-in fade-in zoom-in-95 duration-150">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
+                  <span>{groupModalError}</span>
+                </div>
+              )}
+
+              {/* Group Name */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">Grup / Kategori Adı</label>
+                <input
+                  type="text"
+                  value={groupName}
+                  onChange={(e) => {
+                    setGroupName(e.target.value);
+                    setGroupModalError('');
+                  }}
+                  placeholder="örn. Bursa Kuzey Bölgesi, Önemli Depolar"
+                  className="block w-full text-sm px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 font-semibold shadow-2xs"
+                  required
+                />
+              </div>
+
+              {/* Section 1: Place Search (New Location) */}
+              <div className="border border-slate-100 bg-slate-50/30 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 uppercase tracking-wide">
+                    <Search className="h-3.5 w-3.5 text-indigo-500" />
+                    Haritadan Arama ile Yeni Adres Ekle
+                  </span>
+                  <span className="text-[10px] text-slate-400 bg-slate-150 px-2 py-0.5 rounded-full font-bold">
+                    Yeni Konum Arama
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
+                  <PlaceSearchBox
+                    id="modal-group-place-search"
+                    placeholder="Haritada arayıp gruba yeni yer bulun..."
+                    onPlaceSelected={(place) => {
+                      setCurrentSearchPlace(place);
+                      setCurrentSearchLabel(place.label || '');
+                    }}
+                  />
+
+                  {currentSearchPlace && (
+                    <div className="bg-white border border-slate-200 p-3.5 rounded-xl space-y-3 animate-in slide-in-from-top-3 duration-150">
+                      <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded-lg">
+                        <span className="font-semibold text-slate-700">Bulunan Yer: </span>
+                        {currentSearchPlace.address}
+                      </div>
+
+                      <div className="flex gap-2.5 items-end">
+                        <div className="flex-1">
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1 uppercase tracking-wide">Adres Etiketi / Unvanı</label>
+                          <input
+                            type="text"
+                            value={currentSearchLabel}
+                            onChange={(e) => setCurrentSearchLabel(e.target.value)}
+                            placeholder="örn. Nilüfer Mağazası, Depo C"
+                            className="block w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 font-medium"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!currentSearchLabel.trim()) {
+                              alert("Lütfen bir adres etiketi girin.");
+                              return;
+                            }
+                            setNewGroupAddresses(prev => [
+                              ...prev,
+                              {
+                                label: currentSearchLabel,
+                                address: currentSearchPlace.address,
+                                lat: currentSearchPlace.lat,
+                                lng: currentSearchPlace.lng
+                              }
+                            ]);
+                            setCurrentSearchPlace(null);
+                            setCurrentSearchLabel('');
+                          }}
+                          className="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg transition-all cursor-pointer flex items-center gap-1 shrink-0 shadow-sm"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Listeye Ekle
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section 2: Address Book Selector */}
+              <div className="border border-slate-100 bg-slate-50/30 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 uppercase tracking-wide">
+                    <Bookmark className="h-3.5 w-3.5 text-indigo-500" />
+                    Kayıtlı Adres Defterinden Seç
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allIds = filteredSavedAddressesForGroup.map(a => a.id);
+                      const allSelected = allIds.every(id => selectedExistingIds.includes(id));
+                      if (allSelected) {
+                        setSelectedExistingIds(prev => prev.filter(id => !allIds.includes(id)));
+                      } else {
+                        setSelectedExistingIds(prev => Array.from(new Set([...prev, ...allIds])));
+                      }
+                    }}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-extrabold cursor-pointer"
+                  >
+                    {filteredSavedAddressesForGroup.map(a => a.id).every(id => selectedExistingIds.includes(id)) ? 'Seçimi Temizle' : 'Tümünü Seç'}
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={searchExistingQuery}
+                      onChange={(e) => setSearchExistingQuery(e.target.value)}
+                      placeholder="Kayıtlı adreslerde ara..."
+                      className="w-full text-xs pl-8.5 pr-8 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700 font-semibold"
+                    />
+                    <div className="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-slate-400">
+                      <Search className="h-3 w-3" />
+                    </div>
+                  </div>
+
+                  <div className="max-h-[140px] overflow-y-auto border border-slate-100 rounded-xl bg-white p-1.5 space-y-1">
+                    {filteredSavedAddressesForGroup.length === 0 ? (
+                      <div className="text-center py-4 text-[11px] text-slate-400 font-medium">
+                        Aranan kriterlere uygun kayıtlı adres bulunamadı.
+                      </div>
+                    ) : (
+                      filteredSavedAddressesForGroup.map((addr) => {
+                        const isSelected = selectedExistingIds.includes(addr.id);
+                        return (
+                          <div 
+                            key={addr.id}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedExistingIds(prev => prev.filter(id => id !== addr.id));
+                              } else {
+                                setSelectedExistingIds(prev => [...prev, addr.id]);
+                              }
+                            }}
+                            className="flex items-center gap-2.5 py-1.5 px-2.5 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer select-none"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              readOnly
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer accent-indigo-600"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-slate-700 truncate">{addr.label}</p>
+                              <p className="text-[10px] text-slate-400 truncate leading-tight">{addr.address}</p>
+                            </div>
+                            {addr.category && (
+                              <span className="text-[8px] bg-indigo-50 text-indigo-600 font-bold px-1.5 py-0.5 rounded shrink-0 uppercase tracking-wider border border-indigo-100">
+                                {addr.category}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Merged Included List */}
+              <div className="space-y-2">
+                <span className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Gruba Eklenecek Adresler ({selectedExistingIds.length + newGroupAddresses.length})
+                </span>
+
+                <div className="border border-slate-150 rounded-2xl overflow-hidden max-h-[160px] overflow-y-auto bg-slate-50/50 p-2 space-y-1.5">
+                  {selectedExistingIds.length === 0 && newGroupAddresses.length === 0 ? (
+                    <div className="text-center py-6 text-xs text-slate-400 font-medium">
+                      Henüz gruba dahil edilmiş bir adres yok. Yukarıdan seçin veya arayıp ekleyin.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Existing ones in list */}
+                      {savedAddresses.filter(a => selectedExistingIds.includes(a.id)).map(addr => (
+                        <div key={addr.id} className="flex items-center justify-between gap-3 p-2 bg-white rounded-xl border border-slate-150 shadow-2xs">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-indigo-700 flex items-center gap-1">
+                              <Bookmark className="h-3 w-3 shrink-0 text-indigo-500" />
+                              {addr.label}
+                            </span>
+                            <span className="block text-[10px] text-slate-500 truncate mt-0.5">{addr.address}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedExistingIds(prev => prev.filter(id => id !== addr.id))}
+                            className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 animate-fade-in"
+                            title="Gruptan Çıkar"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+
+                      {/* New ones in list */}
+                      {newGroupAddresses.map((addr, idx) => (
+                        <div key={idx} className="flex items-center justify-between gap-3 p-2 bg-white rounded-xl border border-emerald-150 shadow-2xs">
+                          <div className="min-w-0 flex-1">
+                            <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">
+                              <Plus className="h-3 w-3 shrink-0 text-emerald-500" />
+                              {addr.label} <span className="text-[9px] bg-emerald-50 text-emerald-600 font-extrabold px-1.5 rounded-md border border-emerald-100">Yeni</span>
+                            </span>
+                            <span className="block text-[10px] text-slate-500 truncate mt-0.5">{addr.address}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setNewGroupAddresses(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg transition-colors cursor-pointer shrink-0"
+                            title="Gruptan Çıkar"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-5 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setGroupName('');
+                  setSearchExistingQuery('');
+                  setSelectedExistingIds([]);
+                  setNewGroupAddresses([]);
+                  setCurrentSearchPlace(null);
+                  setCurrentSearchLabel('');
+                  setIsGroupModalOpen(false);
+                }}
+                className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-sm rounded-xl transition-all cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveGroup}
+                disabled={isSavingGroup}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                {isSavingGroup ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Grup Kaydediliyor...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4 shrink-0" />
+                    Grubu ve Adresleri Kaydet
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

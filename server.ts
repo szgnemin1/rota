@@ -249,7 +249,7 @@ async function startServer() {
   app.put("/api/addresses/:id", authenticateToken, (req, res) => {
     try {
       const idToUpdate = req.params.id;
-      const { label, address, lat, lng } = req.body;
+      const { label, address, lat, lng, category } = req.body;
 
       if (!label || !address || typeof lat !== "number" || typeof lng !== "number") {
         res.status(400).json({ error: "Eksik veya geçersiz adres bilgileri." });
@@ -270,7 +270,8 @@ async function startServer() {
         label,
         address,
         lat,
-        lng
+        lng,
+        category: category || "Genel"
       };
 
       fs.writeFileSync(ADDRESS_FILE, JSON.stringify(addresses, null, 2), "utf-8");

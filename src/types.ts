@@ -5,6 +5,7 @@ export interface SavedAddress {
   lat: number;
   lng: number;
   icon?: string; // Icon identifier
+  category?: string; // Grouping category, e.g., "Depolar", "Müşteriler"
 }
 
 export interface RouteStop {

@@ -38,6 +38,9 @@ export default function App() {
   // Triggering live navigation mode across tabs
   const [navigationTriggerCount, setNavigationTriggerCount] = useState(0);
 
+  // Group creation modal state
+  const [showGroupCreationModal, setShowGroupCreationModal] = useState(false);
+
   const handleStartNavigation = () => {
     setNavigationTriggerCount((prev) => prev + 1);
     setMobileTab('map');
@@ -555,6 +558,8 @@ export default function App() {
               setRouteStops={setRouteStops}
               setActiveTab={setActiveTab}
               setMobileTab={setMobileTab}
+              showGroupCreationModal={showGroupCreationModal}
+              setShowGroupCreationModal={setShowGroupCreationModal}
             />
           )}
         </div>
@@ -580,6 +585,11 @@ export default function App() {
           setMobileTab={setMobileTab}
           mobileTab={mobileTab}
           navigationTriggerCount={navigationTriggerCount}
+          onTriggerGroupCreation={() => {
+            setActiveTab('saved');
+            setMobileTab('saved');
+            setShowGroupCreationModal(true);
+          }}
         />
       </main>
 

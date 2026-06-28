@@ -20,6 +20,7 @@ interface LeafletMapProps {
   setMobileTab: (tab: 'route' | 'saved' | 'map') => void;
   mobileTab: 'route' | 'saved' | 'map';
   navigationTriggerCount?: number;
+  onTriggerGroupCreation?: () => void;
 }
 
 export default function LeafletMap({
@@ -34,7 +35,8 @@ export default function LeafletMap({
   setActiveTab,
   setMobileTab,
   mobileTab,
-  navigationTriggerCount
+  navigationTriggerCount,
+  onTriggerGroupCreation
 }: LeafletMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -64,12 +66,123 @@ export default function LeafletMap({
   const [isGpsLoading, setIsGpsLoading] = useState(false);
   const watchIdRef = useRef<number | null>(null);
 
+  // Group selection & filtering states on map
+  const [excludedCategories, setExcludedCategories] = useState<string[]>([]);
+  const [showCategoryPanel, setShowCategoryPanel] = useState(true);
+
+  const availableCategories = Array.from(new Set(savedAddresses.map(addr => addr.category || 'Genel')));
+
+  const getCategoryColor = (category?: string) => {
+    const cat = category || 'Genel';
+    switch (cat) {
+      case 'Müşteriler': return '#ef4444'; // Red/Rose
+      case 'Depolar': return '#06b6d4'; // Cyan
+      case 'Ev/İş': return '#10b981'; // Emerald
+      case 'Genel': return '#6366f1'; // Indigo
+      default:
+        let hash = 0;
+        for (let i = 0; i < cat.length; i++) {
+          hash = cat.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const colors = ['#f59e0b', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316', '#a855f7'];
+        return colors[Math.abs(hash) % colors.length];
+    }
+  };
+
+  const handleSelectGroupForRoute = (catName: string) => {
+    const groupAddresses = savedAddresses.filter(addr => (addr.category || 'Genel') === catName);
+    if (groupAddresses.length === 0) return;
+
+    const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    };
+
+    let sortedAddresses = [...groupAddresses];
+    const existingOrigin = routeStops[0];
+    const hasExistingOrigin = existingOrigin && existingOrigin.lat && existingOrigin.lng;
+
+    if (hasExistingOrigin) {
+      sortedAddresses.sort((a, b) => {
+        const distA = getDistance(existingOrigin.lat!, existingOrigin.lng!, a.lat, a.lng);
+        const distB = getDistance(existingOrigin.lat!, existingOrigin.lng!, b.lat, b.lng);
+        return distA - distB;
+      });
+    } else {
+      const center = mapInstanceRef.current ? mapInstanceRef.current.getCenter() : null;
+      if (center) {
+        sortedAddresses.sort((a, b) => {
+          const distA = getDistance(center.lat, center.lng, a.lat, a.lng);
+          const distB = getDistance(center.lat, center.lng, b.lat, b.lng);
+          return distA - distB;
+        });
+      }
+    }
+
+    const newStops: RouteStop[] = [];
+
+    if (hasExistingOrigin) {
+      newStops.push({ ...existingOrigin });
+      sortedAddresses.forEach((addr, idx) => {
+        const isLast = idx === sortedAddresses.length - 1;
+        newStops.push({
+          id: isLast ? 'destination' : `waypoint-${Date.now()}-${idx}`,
+          label: addr.label,
+          address: addr.address,
+          lat: addr.lat,
+          lng: addr.lng,
+          isSaved: true
+        });
+      });
+    } else {
+      sortedAddresses.forEach((addr, idx) => {
+        const isFirst = idx === 0;
+        const isLast = idx === sortedAddresses.length - 1 && sortedAddresses.length > 1;
+        
+        let id = `waypoint-${Date.now()}-${idx}`;
+        if (isFirst) id = 'origin';
+        else if (isLast) id = 'destination';
+
+        newStops.push({
+          id,
+          label: addr.label,
+          address: addr.address,
+          lat: addr.lat,
+          lng: addr.lng,
+          isSaved: true
+        });
+      });
+    }
+
+    if (!newStops.some(s => s.id === 'destination')) {
+      newStops.push({ id: 'destination', label: '', address: '', lat: 0, lng: 0 });
+    }
+
+    setRouteStops(newStops);
+    setActiveTab('route');
+    setMobileTab('route');
+  };
+
   // Custom marker icon creator (pure HTML & CSS, avoids Vite bundle asset errors)
-  const createCustomMarkerIcon = (color: string, label: string, isStar = false) => {
+  const createCustomMarkerIcon = (color: string, label: string, isStar = false, addressLabel?: string) => {
     const glyph = isStar ? '★' : label;
+    const labelHtml = addressLabel ? `
+      <span class="absolute bottom-full mb-1.5 bg-indigo-950/90 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded shadow-md border border-slate-700/30 whitespace-nowrap pointer-events-none tracking-wide text-center uppercase min-w-[32px]">
+        ${addressLabel}
+      </span>
+    ` : '';
     return L.divIcon({
       html: `
         <div class="relative flex flex-col items-center group">
+          <!-- Floating label -->
+          ${labelHtml}
           <!-- Marker pin body -->
           <div class="w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center font-bold text-xs text-white transition-transform duration-150 scale-100 group-hover:scale-110" style="background-color: ${color}">
             ${glyph}
@@ -371,16 +484,19 @@ export default function LeafletMap({
     // 1. Draw ALL Saved Address markers
     savedAddresses.forEach((addr) => {
       if (!addr.lat || !addr.lng || addr.lat === 0 || addr.lng === 0) return;
+      const cat = addr.category || 'Genel';
+      if (excludedCategories.includes(cat)) return; // Skip if filtered out on map
 
       const isSelected = selectedAddressForMap && selectedAddressForMap.id === addr.id;
-      // High-contrast colors: Indigo-600 for selected/clicked, Indigo-400 for others
-      const markerColor = isSelected ? '#4f46e5' : '#818cf8';
-      const savedIcon = createCustomMarkerIcon(markerColor, '★', true);
+      // High-contrast category based marker colors or indigo-600 if active/selected
+      const markerColor = isSelected ? '#4f46e5' : getCategoryColor(cat);
+      const savedIcon = createCustomMarkerIcon(markerColor, '★', true, addr.label);
       const marker = L.marker([addr.lat, addr.lng], { icon: savedIcon });
 
       marker.bindPopup(`
         <div class="p-1 font-sans text-slate-800">
           <p class="font-bold text-sm text-indigo-600 flex items-center gap-1">★ ${addr.label}</p>
+          <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-0.5">${cat}</p>
           <p class="text-xs text-slate-500 mt-1">${addr.address}</p>
         </div>
       `);
@@ -528,7 +644,7 @@ export default function LeafletMap({
         map.setView([validStops[0].lat, validStops[0].lng], 13, { animate: true });
       }
     }
-  }, [routeStops, travelMode, selectedAddressForMap, savedAddresses]);
+  }, [routeStops, travelMode, selectedAddressForMap, savedAddresses, excludedCategories]);
 
   // Reset navigation when route stops change
   useEffect(() => {
@@ -753,6 +869,112 @@ export default function LeafletMap({
     <div className="relative w-full h-full flex flex-col">
       {/* Map HTML Canvas container */}
       <div id="leaflet-map-canvas" ref={mapContainerRef} className="w-full h-full z-0" />
+
+      {/* Map Group Control Panel - top-left */}
+      {!isNavigating && (
+        <div className="absolute top-4 left-12 md:left-14 z-[1000] max-w-[240px] xs:max-w-xs animate-in slide-in-from-left-5 duration-200">
+          {showCategoryPanel ? (
+            <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-xl border border-slate-200/80 p-3.5 flex flex-col gap-2.5 max-h-[320px] overflow-y-auto">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5 uppercase tracking-wider select-none">
+                  <Bookmark className="h-4 w-4 text-indigo-600 fill-indigo-100/40" />
+                  Grup Yönetimi
+                </span>
+                <div className="flex items-center gap-1.5">
+                  {onTriggerGroupCreation && (
+                    <button
+                      type="button"
+                      onClick={onTriggerGroupCreation}
+                      className="text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 p-1 rounded-lg transition-all cursor-pointer"
+                      title="Yeni Grup Oluştur"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowCategoryPanel(false)}
+                    className="text-slate-400 hover:text-slate-600 p-1 rounded-lg transition-colors cursor-pointer"
+                    title="Grubu Gizle"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {availableCategories.length === 0 ? (
+                <div className="text-[11px] text-slate-400 font-medium py-3 text-center">
+                  Adres defterinde henüz gruplandırılmış adresiniz bulunmamaktadır.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 font-extrabold tracking-wide mb-1 select-none">
+                    <span>GÖSTER</span>
+                    <span>GRUP / HIZLI ROTA</span>
+                  </div>
+                  <div className="space-y-1.5 flex flex-col">
+                    {availableCategories.map((cat) => {
+                      const isExcluded = excludedCategories.includes(cat);
+                      const groupAddresses = savedAddresses.filter(addr => (addr.category || 'Genel') === cat);
+                      const color = getCategoryColor(cat);
+                      
+                      return (
+                        <div key={cat} className="flex items-center justify-between gap-3 py-1 px-1.5 hover:bg-slate-50/80 rounded-lg transition-colors">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {/* Toggle visibility checkbox */}
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={() => {
+                                if (isExcluded) {
+                                  setExcludedCategories(prev => prev.filter(c => c !== cat));
+                                } else {
+                                  setExcludedCategories(prev => [...prev, cat]);
+                                }
+                              }}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5 cursor-pointer accent-indigo-600"
+                              title={isExcluded ? "Haritada Göster" : "Haritadan Gizle"}
+                            />
+                            <span 
+                              className="h-2 w-2 rounded-full shrink-0" 
+                              style={{ backgroundColor: color }}
+                            />
+                            <span className="text-xs font-bold text-slate-700 truncate" title={`${cat} (${groupAddresses.length} Adres)`}>
+                              {cat}
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-extrabold bg-slate-100 px-1 py-0.2 rounded-md">
+                              {groupAddresses.length}
+                            </span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSelectGroupForRoute(cat)}
+                            className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold px-2 py-0.5 rounded-md border border-indigo-200 transition-all cursor-pointer whitespace-nowrap shrink-0 hover:shadow-xs"
+                            title="Bu grubun tüm adreslerini en yakından en uzağa rota haline getirir"
+                          >
+                            Rota Çiz
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowCategoryPanel(true)}
+              className="bg-white/95 backdrop-blur-sm hover:bg-slate-50 border border-slate-200/80 text-slate-700 py-2 px-3 rounded-xl shadow-md transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer select-none"
+              title="Grup Yönetim Panelini Aç"
+            >
+              <Bookmark className="h-4 w-4 text-indigo-600 fill-indigo-100/30" />
+              <span>Grupları Yönet</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Floating Action Panels overlayed on top of map */}
       {!isNavigating && (
