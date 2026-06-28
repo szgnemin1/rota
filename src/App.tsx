@@ -35,6 +35,65 @@ export default function App() {
   // Auto-populating form from map click
   const [prefilledAddress, setPrefilledAddress] = useState<{ address: string; lat: number; lng: number } | null>(null);
 
+  // Triggering live navigation mode across tabs
+  const [navigationTriggerCount, setNavigationTriggerCount] = useState(0);
+
+  const handleStartNavigation = () => {
+    setNavigationTriggerCount((prev) => prev + 1);
+    setMobileTab('map');
+  };
+
+  // Helper to detect device location and set as route origin
+  const detectDeviceLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          try {
+            const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1&accept-language=tr`
+            );
+            if (response.ok) {
+              const data = await response.json();
+              if (data && data.display_name) {
+                setRouteStops(prev => {
+                  const updated = [...prev];
+                  updated[0] = {
+                    id: 'origin',
+                    label: 'Mevcut Konumunuz',
+                    address: data.display_name,
+                    lat: latitude,
+                    lng: longitude
+                  };
+                  return updated;
+                });
+                return;
+              }
+            }
+          } catch (err) {
+            console.warn("Startup reverse geocode failed:", err);
+          }
+          // Fallback if reverse geocode fails or is slow
+          setRouteStops(prev => {
+            const updated = [...prev];
+            updated[0] = {
+              id: 'origin',
+              label: 'Mevcut Konumunuz',
+              address: `Cihaz Konumu (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`,
+              lat: latitude,
+              lng: longitude
+            };
+            return updated;
+          });
+        },
+        (error) => {
+          console.warn("Startup geolocation coordinate request denied or failed:", error);
+        },
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    }
+  };
+
   // Tab management (Mobile & Desktop split)
   const [activeTab, setActiveTab] = useState<'route' | 'saved'>('route');
   const [mobileTab, setMobileTab] = useState<'route' | 'saved' | 'map'>('route');
@@ -86,6 +145,7 @@ export default function App() {
         }
       };
       fetchAddresses();
+      detectDeviceLocation();
     }
   }, [isAuthenticated]);
 
@@ -298,6 +358,7 @@ export default function App() {
       { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
     ]);
     setRouteSummary(null);
+    detectDeviceLocation();
   };
 
   // --- RENDERS ---
@@ -476,6 +537,7 @@ export default function App() {
               setTravelMode={setTravelMode}
               routeSummary={routeSummary}
               onClearRoute={handleClearRoute}
+              onStartNavigation={handleStartNavigation}
             />
           )}
 
@@ -517,6 +579,7 @@ export default function App() {
           setActiveTab={setActiveTab}
           setMobileTab={setMobileTab}
           mobileTab={mobileTab}
+          navigationTriggerCount={navigationTriggerCount}
         />
       </main>
 

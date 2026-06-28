@@ -14,6 +14,7 @@ interface RoutePlannerProps {
   setTravelMode: (mode: TravelMode) => void;
   routeSummary: RouteSummary | null;
   onClearRoute: () => void;
+  onStartNavigation?: () => void;
 }
 
 export default function RoutePlanner({
@@ -23,7 +24,8 @@ export default function RoutePlanner({
   travelMode,
   setTravelMode,
   routeSummary,
-  onClearRoute
+  onClearRoute,
+  onStartNavigation
 }: RoutePlannerProps) {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -333,6 +335,20 @@ export default function RoutePlanner({
                 <p className="text-xl font-bold mt-0.5">{routeSummary.duration}</p>
               </div>
             </div>
+
+            {/* Direct Navigation Button */}
+            {onStartNavigation && (
+              <button
+                id="sidebar-start-navigation-btn"
+                type="button"
+                onClick={onStartNavigation}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-sm rounded-xl transition-all shadow-md cursor-pointer animate-pulse"
+                title="Google Maps gibi canli navigasyonu baslatin"
+              >
+                <Navigation className="h-4.5 w-4.5 text-white fill-white rotate-45" />
+                Navigasyonu & Canlı GPS'i Başlat
+              </button>
+            )}
 
             {/* Step-by-step collapse instructions */}
             <div className="space-y-1">
