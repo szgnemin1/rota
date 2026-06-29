@@ -3,7 +3,7 @@ import { RouteStop, SavedAddress, TravelMode, RouteSummary } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
 import {
   MapPin, Plus, Trash2, ArrowUpDown, Navigation,
-  Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw
+  Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw, Star
 } from 'lucide-react';
 
 interface RoutePlannerProps {
@@ -15,6 +15,8 @@ interface RoutePlannerProps {
   routeSummary: RouteSummary | null;
   onClearRoute: () => void;
   onStartNavigation?: () => void;
+  defaultOrigin?: RouteStop | null;
+  onSetDefaultOrigin?: (stop: RouteStop | null) => void;
 }
 
 export default function RoutePlanner({
@@ -25,7 +27,9 @@ export default function RoutePlanner({
   setTravelMode,
   routeSummary,
   onClearRoute,
-  onStartNavigation
+  onStartNavigation,
+  defaultOrigin,
+  onSetDefaultOrigin
 }: RoutePlannerProps) {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -286,9 +290,32 @@ export default function RoutePlanner({
               >
                 {/* Header label */}
                 <div className="flex items-center justify-between text-xs text-slate-500">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className={`h-2.5 w-2.5 rounded-full border-2 ${prefixColor} shrink-0`} />
                     <span className="font-semibold text-slate-600">{labelText}</span>
+                    {isOrigin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (defaultOrigin) {
+                            onSetDefaultOrigin?.(null);
+                          } else if (stop.lat && stop.lng) {
+                            onSetDefaultOrigin?.(stop);
+                          } else {
+                            alert("Sabit başlangıç yapabilmek için lütfen önce geçerli bir başlangıç konumu arayın veya seçin.");
+                          }
+                        }}
+                        className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all cursor-pointer flex items-center gap-1 ${
+                          defaultOrigin
+                            ? 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-500 border-slate-200'
+                        }`}
+                        title={defaultOrigin ? "Sabit Başlangıç Konumunu Kaldır" : "Bu konumu kalıcı sabit başlangıç yap"}
+                      >
+                        <Star className={`h-3 w-3 shrink-0 ${defaultOrigin ? 'fill-amber-500 text-amber-500' : 'text-slate-400'}`} />
+                        {defaultOrigin ? 'Sabit Başlangıç ✓' : 'Sabit Başlangıç Yap'}
+                      </button>
+                    )}
                   </div>
 
                   {!isOrigin && !isDest && (

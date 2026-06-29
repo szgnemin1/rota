@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { SavedAddress, RouteStop } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
-import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X, Edit, Crosshair, Search } from 'lucide-react';
+import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X, Edit, Crosshair, Search, Star } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface SavedAddressesProps {
   savedAddresses: SavedAddress[];
   onAddAddress: (address: SavedAddress) => void;
   onAddAddressesBulk: (addresses: SavedAddress[]) => void;
-  onUpdateAddress: (id: string, address: Omit<SavedAddress, 'id'>) => void;
+  onUpdateAddress: (id: string, address: Omit<SavedAddress, 'id'>) => Promise<void>;
   onDeleteAddress: (id: string) => void;
   onSelectOnMap: (address: SavedAddress) => void;
   prefilledAddress?: { address: string; lat: number; lng: number } | null;
@@ -19,6 +19,8 @@ interface SavedAddressesProps {
   setMobileTab: (tab: 'route' | 'saved' | 'map') => void;
   showGroupCreationModal?: boolean;
   setShowGroupCreationModal?: (show: boolean) => void;
+  defaultOrigin?: RouteStop | null;
+  onSetDefaultOrigin?: (stop: RouteStop | null) => void;
 }
 
 export default function SavedAddresses({
@@ -35,7 +37,9 @@ export default function SavedAddresses({
   setActiveTab,
   setMobileTab,
   showGroupCreationModal,
-  setShowGroupCreationModal
+  setShowGroupCreationModal,
+  defaultOrigin,
+  onSetDefaultOrigin
 }: SavedAddressesProps) {
   const [label, setLabel] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<{
@@ -101,7 +105,8 @@ export default function SavedAddresses({
   });
 
   const handleSaveGroup = async () => {
-    if (!groupName.trim()) {
+    const targetGroupName = groupName.trim();
+    if (!targetGroupName) {
       setGroupModalError("Lütfen bir grup adı girin.");
       return;
     }
@@ -110,33 +115,45 @@ export default function SavedAddresses({
       return;
     }
 
+    // 1. Check max custom groups (total 10)
+    const customCategories = existingCategories.filter(c => c !== 'Genel');
+    if (customCategories.length >= 10 && !existingCategories.includes(targetGroupName)) {
+      setGroupModalError("En fazla 10 farklı grup oluşturabilirsiniz! Lütfen yeni bir grup ismi girmek yerine mevcut grupları kullanın.");
+      return;
+    }
+
+    // 2. Check max items in the target group (total 10)
+    const alreadyInGroup = savedAddresses.filter(a => (a.category || 'Genel') === targetGroupName && !selectedExistingIds.includes(a.id));
+    const totalExpectedInGroup = alreadyInGroup.length + selectedExistingIds.length + newGroupAddresses.length;
+    if (totalExpectedInGroup > 10) {
+      setGroupModalError(`Bir grupta en fazla 10 adres bulunabilir! Bu grupta toplam ${totalExpectedInGroup} adet adres bulunmaya çalışılıyor. Lütfen sınırı aşmayın.`);
+      return;
+    }
+
     setIsSavingGroup(true);
     setGroupModalError('');
 
     try {
-      // 1. Update existing selected addresses category
-      const existingToUpdate = savedAddresses.filter(a => selectedExistingIds.includes(a.id));
-      for (const addr of existingToUpdate) {
-        await onUpdateAddress(addr.id, {
-          label: addr.label,
-          address: addr.address,
-          lat: addr.lat,
-          lng: addr.lng,
-          category: groupName.trim()
-        });
-      }
+      // 1. Prepare existing selected addresses to update
+      const existingToUpdate = savedAddresses.filter(a => selectedExistingIds.includes(a.id)).map(addr => ({
+        ...addr,
+        category: targetGroupName
+      }));
 
       // 2. Add new addresses bulk
-      if (newGroupAddresses.length > 0) {
-        const addressesWithCat = newGroupAddresses.map(addr => ({
-          id: `new-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-          label: addr.label.trim(),
-          address: addr.address.trim(),
-          lat: addr.lat,
-          lng: addr.lng,
-          category: groupName.trim()
-        }));
-        await onAddAddressesBulk(addressesWithCat);
+      const newAddressesToCreate = newGroupAddresses.map(addr => ({
+        id: `new-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        label: addr.label.trim(),
+        address: addr.address.trim(),
+        lat: addr.lat,
+        lng: addr.lng,
+        category: targetGroupName
+      }));
+
+      const allAddressesToSave = [...existingToUpdate, ...newAddressesToCreate];
+
+      if (allAddressesToSave.length > 0) {
+        await onAddAddressesBulk(allAddressesToSave);
       }
 
       // Reset states
@@ -659,6 +676,24 @@ export default function SavedAddresses({
     setRouteStops(updated);
     setActiveTab('route');
     setMobileTab('route');
+  };
+
+  const handleToggleDefaultOrigin = (addr: SavedAddress) => {
+    if (!onSetDefaultOrigin) return;
+    const isCurrentDefault = defaultOrigin && defaultOrigin.lat === addr.lat && defaultOrigin.lng === addr.lng;
+    if (isCurrentDefault) {
+      onSetDefaultOrigin(null);
+    } else {
+      const stop: RouteStop = {
+        id: 'origin',
+        label: addr.label,
+        address: addr.address,
+        lat: addr.lat,
+        lng: addr.lng,
+        isSaved: true
+      };
+      onSetDefaultOrigin(stop);
+    }
   };
 
   const handleSetAsDestination = (addr: SavedAddress) => {
@@ -1267,6 +1302,61 @@ export default function SavedAddresses({
                                       <span>Enl: {addr.lat.toFixed(4)}</span>
                                       <span>Boy: {addr.lng.toFixed(4)}</span>
                                     </div>
+
+                                    {/* Inline Group / Category Selector */}
+                                    <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                      <span className="text-[10px] font-bold text-slate-400">Grup:</span>
+                                      <select
+                                        value={addr.category || 'Genel'}
+                                        onChange={async (e) => {
+                                          const newCat = e.target.value;
+                                          if (newCat === '__new__') {
+                                            const name = window.prompt("Yeni grup adı girin (Maksimum 10 eleman olabilir):");
+                                            if (name && name.trim()) {
+                                              const trimmed = name.trim();
+                                              // Check custom groups limit
+                                              const currentCustomCats = existingCategories.filter(c => c !== 'Genel');
+                                              if (currentCustomCats.length >= 10 && !existingCategories.includes(trimmed)) {
+                                                alert("En fazla 10 farklı grup oluşturabilirsiniz!");
+                                                return;
+                                              }
+                                              // Check target group size limit
+                                              const itemsInTarget = savedAddresses.filter(a => (a.category || 'Genel') === trimmed).length;
+                                              if (itemsInTarget >= 10) {
+                                                alert(`"${trimmed}" grubu zaten maksimum 10 adres sınırına ulaştı!`);
+                                                return;
+                                              }
+                                              await onUpdateAddress(addr.id, {
+                                                ...addr,
+                                                category: trimmed
+                                              });
+                                            }
+                                          } else {
+                                            // Check target group size limit
+                                            const itemsInTarget = savedAddresses.filter(a => (a.category || 'Genel') === newCat).length;
+                                            if (newCat !== 'Genel' && itemsInTarget >= 10 && addr.category !== newCat) {
+                                              alert(`"${newCat}" grubu zaten maksimum 10 adres sınırına ulaştı!`);
+                                              return;
+                                            }
+                                            await onUpdateAddress(addr.id, {
+                                              ...addr,
+                                              category: newCat
+                                            });
+                                          }
+                                        }}
+                                        className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100/80 border border-indigo-200 rounded px-1.5 py-0.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-400 transition-all max-w-[150px] truncate"
+                                      >
+                                        {existingCategories.map(cat => {
+                                          const count = savedAddresses.filter(a => (a.category || 'Genel') === cat).length;
+                                          return (
+                                            <option key={cat} value={cat}>
+                                              {cat} ({count}/10)
+                                            </option>
+                                          );
+                                        })}
+                                        <option value="__new__">+ Yeni Grup...</option>
+                                      </select>
+                                    </div>
                                   </div>
                                 </div>
 
@@ -1313,6 +1403,25 @@ export default function SavedAddresses({
                                     <Navigation className="h-3 w-3 shrink-0" />
                                     Başlangıç
                                   </button>
+                                  {onSetDefaultOrigin && (
+                                    <button
+                                      id={`set-default-origin-btn-${addr.id}`}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleDefaultOrigin(addr);
+                                      }}
+                                      className={`flex items-center gap-1 px-2 py-1 rounded font-bold text-[10px] border transition-all cursor-pointer ${
+                                        defaultOrigin && defaultOrigin.lat === addr.lat && defaultOrigin.lng === addr.lng
+                                          ? 'bg-amber-100 hover:bg-amber-200 text-amber-800 border-amber-300'
+                                          : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                                      }`}
+                                      title={defaultOrigin && defaultOrigin.lat === addr.lat && defaultOrigin.lng === addr.lng ? "Sabit Başlangıç Konumunu Kaldır" : "Bu adresi Rota Planlayıcı için kalıcı sabit başlangıç yap"}
+                                    >
+                                      <Star className={`h-3 w-3 shrink-0 ${defaultOrigin && defaultOrigin.lat === addr.lat && defaultOrigin.lng === addr.lng ? 'fill-amber-500 text-amber-600' : 'text-slate-400'}`} />
+                                      {defaultOrigin && defaultOrigin.lat === addr.lat && defaultOrigin.lng === addr.lng ? 'Sabit Başlangıç ✓' : 'Sabit Başlangıç Yap'}
+                                    </button>
+                                  )}
                                   <button
                                     id={`add-waypoint-btn-${addr.id}`}
                                     type="button"

@@ -20,11 +20,54 @@ export default function App() {
   // Saved Addresses (synced with VDS)
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
 
+  // Sabit Başlangıç Konumu (Default Origin) state
+  const [defaultOrigin, setDefaultOrigin] = useState<RouteStop | null>(() => {
+    try {
+      const saved = localStorage.getItem('sabit_baslangic_konumu');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const handleSetDefaultOrigin = (stop: RouteStop | null) => {
+    setDefaultOrigin(stop);
+    if (stop) {
+      localStorage.setItem('sabit_baslangic_konumu', JSON.stringify(stop));
+      setRouteStops(prev => {
+        const updated = [...prev];
+        updated[0] = {
+          id: 'origin',
+          label: stop.label,
+          address: stop.address,
+          lat: stop.lat,
+          lng: stop.lng,
+          isSaved: true
+        };
+        return updated;
+      });
+    } else {
+      localStorage.removeItem('sabit_baslangic_konumu');
+    }
+  };
+
   // Route state
-  const [routeStops, setRouteStops] = useState<RouteStop[]>([
-    { id: 'origin', label: '', address: '', lat: 0, lng: 0 },
-    { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
-  ]);
+  const [routeStops, setRouteStops] = useState<RouteStop[]>(() => {
+    try {
+      const saved = localStorage.getItem('sabit_baslangic_konumu');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return [
+          { id: 'origin', label: parsed.label, address: parsed.address, lat: parsed.lat, lng: parsed.lng, isSaved: true },
+          { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
+        ];
+      }
+    } catch (e) {}
+    return [
+      { id: 'origin', label: '', address: '', lat: 0, lng: 0 },
+      { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
+    ];
+  });
 
   const [travelMode, setTravelMode] = useState<TravelMode>('DRIVING');
   const [routeSummary, setRouteSummary] = useState<RouteSummary | null>(null);
@@ -48,6 +91,22 @@ export default function App() {
 
   // Helper to detect device location and set as route origin
   const detectDeviceLocation = () => {
+    if (defaultOrigin) {
+      setRouteStops(prev => {
+        const updated = [...prev];
+        updated[0] = {
+          id: 'origin',
+          label: defaultOrigin.label,
+          address: defaultOrigin.address,
+          lat: defaultOrigin.lat,
+          lng: defaultOrigin.lng,
+          isSaved: true
+        };
+        return updated;
+      });
+      return;
+    }
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
@@ -356,12 +415,20 @@ export default function App() {
   };
 
   const handleClearRoute = () => {
-    setRouteStops([
-      { id: 'origin', label: '', address: '', lat: 0, lng: 0 },
-      { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
-    ]);
-    setRouteSummary(null);
-    detectDeviceLocation();
+    if (defaultOrigin) {
+      setRouteStops([
+        { id: 'origin', label: defaultOrigin.label, address: defaultOrigin.address, lat: defaultOrigin.lat, lng: defaultOrigin.lng, isSaved: true },
+        { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
+      ]);
+      setRouteSummary(null);
+    } else {
+      setRouteStops([
+        { id: 'origin', label: '', address: '', lat: 0, lng: 0 },
+        { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
+      ]);
+      setRouteSummary(null);
+      detectDeviceLocation();
+    }
   };
 
   // --- RENDERS ---
@@ -541,6 +608,8 @@ export default function App() {
               routeSummary={routeSummary}
               onClearRoute={handleClearRoute}
               onStartNavigation={handleStartNavigation}
+              defaultOrigin={defaultOrigin}
+              onSetDefaultOrigin={handleSetDefaultOrigin}
             />
           )}
 
@@ -560,6 +629,8 @@ export default function App() {
               setMobileTab={setMobileTab}
               showGroupCreationModal={showGroupCreationModal}
               setShowGroupCreationModal={setShowGroupCreationModal}
+              defaultOrigin={defaultOrigin}
+              onSetDefaultOrigin={handleSetDefaultOrigin}
             />
           )}
         </div>
