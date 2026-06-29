@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { RouteStop, SavedAddress, TravelMode, RouteSummary } from './types';
 import RoutePlanner from './components/RoutePlanner';
 import SavedAddresses from './components/SavedAddresses';
+import SettingsComponent from './components/Settings';
 import LeafletMap from './components/LeafletMap';
-import { Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal, CheckCircle2, AlertTriangle, X } from 'lucide-react';
+import { detectSmartCategory } from './utils/categoryDetector';
+import { Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal, CheckCircle2, AlertTriangle, X, Settings as SettingsIcon } from 'lucide-react';
 
 export default function App() {
   // Authentication states
@@ -157,8 +159,8 @@ export default function App() {
   };
 
   // Tab management (Mobile & Desktop split)
-  const [activeTab, setActiveTab] = useState<'route' | 'saved'>('route');
-  const [mobileTab, setMobileTab] = useState<'route' | 'saved' | 'map'>('route');
+  const [activeTab, setActiveTab] = useState<'route' | 'saved' | 'settings'>('route');
+  const [mobileTab, setMobileTab] = useState<'route' | 'saved' | 'settings' | 'map'>('route');
 
   // 1. Authentication Status Check
   useEffect(() => {
@@ -289,9 +291,19 @@ export default function App() {
   // 6. Save Address to VDS
   const handleAddAddress = async (newAddress: SavedAddress) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
+    
+    // Auto grouping logic
+    const autoMode = localStorage.getItem('auto_group_mode') || 'off';
+    let processedAddress = { ...newAddress };
+    if (autoMode === 'fixed') {
+      processedAddress.category = localStorage.getItem('auto_group_fixed_name') || 'Genel';
+    } else if (autoMode === 'smart') {
+      processedAddress.category = detectSmartCategory(processedAddress.label, processedAddress.address);
+    }
+
     // Optimistic UI update
     const previousAddresses = [...savedAddresses];
-    setSavedAddresses([newAddress, ...savedAddresses]);
+    setSavedAddresses([processedAddress, ...savedAddresses]);
 
     try {
       const res = await fetch('/api/addresses', {
@@ -300,7 +312,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'X-App-Token': token
         },
-        body: JSON.stringify(newAddress)
+        body: JSON.stringify(processedAddress)
       });
       if (res.ok) {
         const data = await res.json();
@@ -319,9 +331,22 @@ export default function App() {
   // Save multiple addresses to VDS (Bulk save)
   const handleAddAddressesBulk = async (newAddresses: SavedAddress[]) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
+    
+    // Auto grouping logic for bulk
+    const autoMode = localStorage.getItem('auto_group_mode') || 'off';
+    const processedAddresses = newAddresses.map(addr => {
+      let processed = { ...addr };
+      if (autoMode === 'fixed') {
+        processed.category = localStorage.getItem('auto_group_fixed_name') || 'Genel';
+      } else if (autoMode === 'smart') {
+        processed.category = detectSmartCategory(processed.label, processed.address);
+      }
+      return processed;
+    });
+
     const previousAddresses = [...savedAddresses];
     // Optimistic UI update (prepend new addresses)
-    setSavedAddresses(prev => [...newAddresses, ...prev]);
+    setSavedAddresses(prev => [...processedAddresses, ...prev]);
 
     try {
       const res = await fetch('/api/addresses/bulk', {
@@ -330,7 +355,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'X-App-Token': token
         },
-        body: JSON.stringify(newAddresses)
+        body: JSON.stringify(processedAddresses)
       });
       if (res.ok) {
         const data = await res.json();
@@ -563,14 +588,14 @@ export default function App() {
         </header>
 
         {/* Desktop tab selector bar */}
-        <nav className="grid grid-cols-2 border-b border-slate-100 bg-slate-50/50 p-1">
+        <nav className="grid grid-cols-3 border-b border-slate-100 bg-slate-50/50 p-1">
           <button
             id="desktop-tab-route"
             onClick={() => {
               setActiveTab('route');
               setMobileTab('route');
             }}
-            className={`flex items-center justify-center gap-2 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               (activeTab === 'route')
                 ? 'bg-white text-blue-600 shadow-sm border border-slate-100'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
@@ -585,7 +610,7 @@ export default function App() {
               setActiveTab('saved');
               setMobileTab('saved');
             }}
-            className={`flex items-center justify-center gap-2 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
               (activeTab === 'saved')
                 ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
@@ -593,6 +618,21 @@ export default function App() {
           >
             <Bookmark className="h-4 w-4" />
             Adres Defteri
+          </button>
+          <button
+            id="desktop-tab-settings"
+            onClick={() => {
+              setActiveTab('settings');
+              setMobileTab('settings');
+            }}
+            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+              (activeTab === 'settings')
+                ? 'bg-white text-violet-600 shadow-sm border border-slate-100'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            <SettingsIcon className="h-4 w-4" />
+            Ayarlar
           </button>
         </nav>
 
@@ -633,6 +673,15 @@ export default function App() {
               onSetDefaultOrigin={handleSetDefaultOrigin}
             />
           )}
+
+          {activeTab === 'settings' && (
+            <SettingsComponent
+              savedAddresses={savedAddresses}
+              defaultOrigin={defaultOrigin}
+              onSetDefaultOrigin={handleSetDefaultOrigin}
+              onAddAddress={handleAddAddress}
+            />
+          )}
         </div>
       </aside>
 
@@ -667,7 +716,7 @@ export default function App() {
       {/* BOTTOM GLOBAL TAB BAR FOR MOBILE */}
       <footer 
         id="mobile-bottom-tabs"
-        className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 grid grid-cols-3 md:hidden z-20 shadow-lg select-none"
+        className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 grid grid-cols-4 md:hidden z-20 shadow-lg select-none"
       >
         <button
           id="mobile-tab-btn-route"
@@ -707,7 +756,21 @@ export default function App() {
           }`}
         >
           <MapIcon className="h-5 w-5 mb-1" />
-          <span className="text-[10px] font-medium">Harita Görünümü</span>
+          <span className="text-[10px] font-medium">Harita</span>
+        </button>
+
+        <button
+          id="mobile-tab-btn-settings"
+          onClick={() => {
+            setActiveTab('settings');
+            setMobileTab('settings');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
+            mobileTab === 'settings' ? 'text-violet-600 font-semibold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <SettingsIcon className="h-5 w-5 mb-1" />
+          <span className="text-[10px] font-medium">Ayarlar</span>
         </button>
       </footer>
 
