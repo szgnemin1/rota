@@ -3,7 +3,7 @@ import { RouteStop, SavedAddress, TravelMode, RouteSummary } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
 import {
   MapPin, Plus, Trash2, ArrowUpDown, Navigation,
-  Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw, Star
+  Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw, Star, GripVertical
 } from 'lucide-react';
 
 interface RoutePlannerProps {
@@ -33,6 +33,36 @@ export default function RoutePlanner({
 }: RoutePlannerProps) {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  const handleReorderStops = (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+
+    // Extract content of stops in their current order
+    const stopContents = routeStops.map(s => ({
+      label: s.label,
+      address: s.address,
+      lat: s.lat,
+      lng: s.lng,
+      isSaved: s.isSaved
+    }));
+
+    // Reorder contents
+    const [draggedContent] = stopContents.splice(fromIndex, 1);
+    stopContents.splice(toIndex, 0, draggedContent);
+
+    // Apply back preserving the IDs
+    const updated = routeStops.map((origStop, idx) => ({
+      ...origStop,
+      label: stopContents[idx].label,
+      address: stopContents[idx].address,
+      lat: stopContents[idx].lat,
+      lng: stopContents[idx].lng,
+      isSaved: stopContents[idx].isSaved
+    }));
+
+    setRouteStops(updated);
+  };
 
   // Default structure of route: must have at least Origin and Destination
   useEffect(() => {
@@ -105,14 +135,13 @@ export default function RoutePlanner({
       return;
     }
 
-    // Filter valid stops that have coordinates and are not the origin
-    const validOtherStops = routeStops.filter(s => s.id !== 'origin' && s.lat && s.lng);
-    const unplacedStops = routeStops.filter(s => s.id !== 'origin' && (!s.lat || !s.lng));
+    // Identify if we have a valid destination stop
+    const destination = routeStops.find(s => s.id === 'destination');
+    const hasDestination = !!(destination && destination.lat && destination.lng);
 
-    if (validOtherStops.length === 0) {
-      alert("Sıralanacak konum bilgisi olan başka bir durak bulunamadı.");
-      return;
-    }
+    // Get all valid stops that have coordinates and are not the origin
+    const validWaypoints = routeStops.filter(s => s.id !== 'origin' && s.id !== 'destination' && s.lat && s.lng);
+    const unplacedStops = routeStops.filter(s => !s.lat || !s.lng);
 
     // Haversine distance calculator
     const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
@@ -127,19 +156,43 @@ export default function RoutePlanner({
       return R * c;
     };
 
-    // Sort validOtherStops from nearest to farthest according to origin position
-    validOtherStops.sort((a, b) => {
-      const distA = getDistance(origin.lat, origin.lng, a.lat, a.lng);
-      const distB = getDistance(origin.lat, origin.lng, b.lat, b.lng);
-      return distA - distB;
-    });
+    // We will build the sorted list starting with origin
+    const sortedWaypoints: RouteStop[] = [];
+    
+    // Gather all stops we want to optimize (all waypoints, and the destination if it's not a "fixed" target)
+    const stopsToOptimize = [...validWaypoints];
+    if (!hasDestination && destination && destination.lat && destination.lng) {
+      stopsToOptimize.push(destination);
+    }
 
-    // Reconstruct stops list
-    const sortedStops: RouteStop[] = [{ ...origin }];
+    let currentLat = origin.lat;
+    let currentLng = origin.lng;
 
-    validOtherStops.forEach((stop, idx) => {
-      const isLast = idx === validOtherStops.length - 1;
-      sortedStops.push({
+    while (stopsToOptimize.length > 0) {
+      let closestIdx = 0;
+      let minDistance = Infinity;
+
+      for (let i = 0; i < stopsToOptimize.length; i++) {
+        const dist = getDistance(currentLat, currentLng, stopsToOptimize[i].lat, stopsToOptimize[i].lng);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestIdx = i;
+        }
+      }
+
+      const nextStop = stopsToOptimize.splice(closestIdx, 1)[0];
+      sortedWaypoints.push(nextStop);
+      currentLat = nextStop.lat;
+      currentLng = nextStop.lng;
+    }
+
+    // Construct the final list of stops
+    const finalStops: RouteStop[] = [{ ...origin }];
+
+    // Append sorted waypoints
+    sortedWaypoints.forEach((stop, idx) => {
+      const isLast = idx === sortedWaypoints.length - 1 && !hasDestination;
+      finalStops.push({
         id: isLast ? 'destination' : `waypoint-${Date.now()}-${idx}`,
         label: stop.label,
         address: stop.address,
@@ -149,20 +202,39 @@ export default function RoutePlanner({
       });
     });
 
-    // Add back unplaced stops
-    unplacedStops.forEach((stop, idx) => {
-      sortedStops.push({
+    // If destination was fixed, append it at the very end
+    if (hasDestination && destination) {
+      finalStops.push({
+        id: 'destination',
+        label: destination.label,
+        address: destination.address,
+        lat: destination.lat,
+        lng: destination.lng,
+        isSaved: destination.isSaved
+      });
+    }
+
+    // Add back empty/unplaced stops
+    const emptyDestination = unplacedStops.find(s => s.id === 'destination');
+    const emptyWaypoints = unplacedStops.filter(s => s.id !== 'origin' && s.id !== 'destination');
+
+    emptyWaypoints.forEach((stop, idx) => {
+      finalStops.push({
         ...stop,
-        id: stop.id === 'destination' && !sortedStops.some(s => s.id === 'destination') ? 'destination' : `waypoint-empty-${idx}`
+        id: `waypoint-empty-${idx}`
       });
     });
 
     // Ensure we have a destination slot
-    if (!sortedStops.some(s => s.id === 'destination')) {
-      sortedStops.push({ id: 'destination', label: '', address: '', lat: 0, lng: 0 });
+    if (!finalStops.some(s => s.id === 'destination')) {
+      if (emptyDestination) {
+        finalStops.push(emptyDestination);
+      } else {
+        finalStops.push({ id: 'destination', label: '', address: '', lat: 0, lng: 0 });
+      }
     }
 
-    setRouteStops(sortedStops);
+    setRouteStops(finalStops);
   };
 
   // Generate Google Maps Directions link
@@ -384,11 +456,25 @@ export default function RoutePlanner({
               <div
                 id={`route-stop-block-${stop.id}`}
                 key={stop.id}
-                className="relative bg-slate-50 border border-slate-100 p-3 rounded-xl flex flex-col gap-2 shadow-sm"
+                draggable
+                onDragStart={(e) => setDraggedIndex(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnd={() => setDraggedIndex(null)}
+                onDrop={(e) => {
+                  if (draggedIndex !== null) {
+                    handleReorderStops(draggedIndex, idx);
+                  }
+                }}
+                className={`relative bg-slate-50 border p-3 rounded-xl flex flex-col gap-2 shadow-sm transition-all duration-200 cursor-move ${
+                  draggedIndex === idx
+                    ? 'opacity-40 border-indigo-400 bg-indigo-50/10 scale-95 shadow-inner'
+                    : 'border-slate-100 hover:border-slate-200 hover:shadow-md'
+                }`}
               >
                 {/* Header label */}
                 <div className="flex items-center justify-between text-xs text-slate-500">
                   <div className="flex items-center gap-1.5 flex-wrap">
+                    <GripVertical className="h-3.5 w-3.5 text-slate-400 cursor-grab active:cursor-grabbing shrink-0" />
                     <span className={`h-2.5 w-2.5 rounded-full border-2 ${prefixColor} shrink-0`} />
                     <span className="font-semibold text-slate-600">{labelText}</span>
                     {isOrigin && (

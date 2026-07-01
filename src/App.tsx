@@ -433,6 +433,40 @@ export default function App() {
     }
   };
 
+  const handleUpdateAddressesBulkVisited = async (ids: string[] | null, visited: boolean) => {
+    const token = localStorage.getItem('rotaplan_auth_token') || '';
+    const previousAddresses = [...savedAddresses];
+
+    // Optimistic UI update
+    setSavedAddresses(prev => prev.map(a => {
+      if (!ids || ids.length === 0 || ids.includes(a.id)) {
+        return { ...a, visited };
+      }
+      return a;
+    }));
+
+    try {
+      const res = await fetch('/api/addresses/bulk-visited', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Token': token
+        },
+        body: JSON.stringify({ ids, visited })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedAddresses(data.addresses);
+      } else {
+        setSavedAddresses(previousAddresses);
+        if (res.status === 401) handleLogout();
+      }
+    } catch (err) {
+      console.error("Toplu ziyaret durumu güncellenirken hata:", err);
+      setSavedAddresses(previousAddresses);
+    }
+  };
+
   const handleSelectOnMap = (address: SavedAddress) => {
     setSelectedAddressForMap(address);
     // Switch mobile view to Map
@@ -671,6 +705,7 @@ export default function App() {
               setShowGroupCreationModal={setShowGroupCreationModal}
               defaultOrigin={defaultOrigin}
               onSetDefaultOrigin={handleSetDefaultOrigin}
+              onUpdateAddressesBulkVisited={handleUpdateAddressesBulkVisited}
             />
           )}
 

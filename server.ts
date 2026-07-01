@@ -283,6 +283,33 @@ async function startServer() {
     }
   });
 
+  // Bulk update visited status
+  app.put("/api/addresses/bulk-visited", authenticateToken, (req, res) => {
+    try {
+      const { ids, visited } = req.body;
+      if (typeof visited !== "boolean") {
+        res.status(400).json({ error: "visited alanı boolean olmalıdır." });
+        return;
+      }
+
+      const data = fs.readFileSync(ADDRESS_FILE, "utf-8");
+      const addresses = JSON.parse(data);
+
+      const updatedAddresses = addresses.map((addr: any) => {
+        if (!ids || ids.length === 0 || ids.includes(addr.id)) {
+          return { ...addr, visited };
+        }
+        return addr;
+      });
+
+      fs.writeFileSync(ADDRESS_FILE, JSON.stringify(updatedAddresses, null, 2), "utf-8");
+      res.json({ success: true, addresses: updatedAddresses });
+    } catch (err: any) {
+      console.error("Bulk update visited failed:", err);
+      res.status(500).json({ error: "Toplu gidilme durumu güncellenemedi." });
+    }
+  });
+
 
   // --- REMOVED UPDATE TRIGGER FROM APP ---
   app.post("/api/update-app", authenticateToken, (req, res) => {

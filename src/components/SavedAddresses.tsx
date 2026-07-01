@@ -21,6 +21,7 @@ interface SavedAddressesProps {
   setShowGroupCreationModal?: (show: boolean) => void;
   defaultOrigin?: RouteStop | null;
   onSetDefaultOrigin?: (stop: RouteStop | null) => void;
+  onUpdateAddressesBulkVisited?: (ids: string[] | null, visited: boolean) => Promise<void>;
 }
 
 export default function SavedAddresses({
@@ -39,7 +40,8 @@ export default function SavedAddresses({
   showGroupCreationModal,
   setShowGroupCreationModal,
   defaultOrigin,
-  onSetDefaultOrigin
+  onSetDefaultOrigin,
+  onUpdateAddressesBulkVisited
 }: SavedAddressesProps) {
   const [label, setLabel] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<{
@@ -1129,11 +1131,27 @@ export default function SavedAddresses({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Adres Listesi</h3>
-            {isMultiSelectMode && (
-              <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 animate-pulse">
-                Çoklu Seçim Aktif
-              </span>
-            )}
+            <div className="flex items-center gap-1.5">
+              {savedAddresses.length > 0 && onUpdateAddressesBulkVisited && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (confirm("Kayıtlı TÜM adreslerin ziyaret durumunu 'Gidilmedi' olarak sıfırlamak istiyor musunuz?")) {
+                      await onUpdateAddressesBulkVisited(null, false);
+                    }
+                  }}
+                  className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 font-extrabold px-2 py-1 rounded border border-slate-200 cursor-pointer transition-all flex items-center gap-1"
+                  title="Tüm kayıtlı adreslerin ziyaret durumunu sıfırlar"
+                >
+                  Tümünü Sıfırla (Gidilmedi)
+                </button>
+              )}
+              {isMultiSelectMode && (
+                <span className="text-[10px] text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 animate-pulse">
+                  Çoklu Seçim Aktif
+                </span>
+              )}
+            </div>
           </div>
 
           {savedAddresses.length > 0 && (
@@ -1230,17 +1248,33 @@ export default function SavedAddresses({
                       
                       <div className="flex items-center gap-2">
                         {!isMultiSelectMode && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsMultiSelectMode(true);
-                              setSelectedIds(addresses.map(a => a.id));
-                            }}
-                            className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold px-2 py-0.5 rounded border border-indigo-200 cursor-pointer transition-all"
-                            title="Bu grubun tüm adreslerini rotaya eklemek için seç"
-                          >
-                            Grubu Seç
-                          </button>
+                          <>
+                            {onUpdateAddressesBulkVisited && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (confirm(`"${catName}" grubundaki tüm adresleri "Gidilmedi" olarak işaretlemek istediğinize emin misiniz?`)) {
+                                    await onUpdateAddressesBulkVisited(addresses.map(a => a.id), false);
+                                  }
+                                }}
+                                className="text-[10px] bg-amber-50 hover:bg-amber-100 text-amber-700 font-extrabold px-2 py-0.5 rounded border border-amber-200 cursor-pointer transition-all flex items-center gap-1"
+                                title="Bu grubun tüm adreslerini gidilmedi olarak işaretle"
+                              >
+                                Gidilmedi Yap
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsMultiSelectMode(true);
+                                setSelectedIds(addresses.map(a => a.id));
+                              }}
+                              className="text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-extrabold px-2 py-0.5 rounded border border-indigo-200 cursor-pointer transition-all"
+                              title="Bu grubun tüm adreslerini rotaya eklemek için seç"
+                            >
+                              Grubu Seç
+                            </button>
+                          </>
                         )}
                         <button
                           type="button"
