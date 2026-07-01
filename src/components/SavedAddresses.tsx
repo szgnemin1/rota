@@ -889,10 +889,13 @@ export default function SavedAddresses({
   };
 
   const toggleCategoryCollapse = (cat: string) => {
-    setCollapsedCategories(prev => ({
-      ...prev,
-      [cat]: !prev[cat]
-    }));
+    setCollapsedCategories(prev => {
+      const wasCollapsed = prev[cat] !== false;
+      return {
+        ...prev,
+        [cat]: !wasCollapsed
+      };
+    });
   };
 
   return (
@@ -1212,12 +1215,14 @@ export default function SavedAddresses({
                   return groups;
                 }, {} as Record<string, SavedAddress[]>)
               ).map(([catName, addresses]) => {
-                const isCollapsed = !!collapsedCategories[catName];
+                const isCollapsed = collapsedCategories[catName] !== false;
+                const visitedCount = addresses.filter(a => a.visited).length;
+                const totalCount = addresses.length;
                 return (
                   <div key={catName} className="space-y-2.5 border border-slate-100/70 rounded-2xl p-3 bg-slate-50/15">
                     {/* Category Header */}
                     <div className="w-full flex items-center justify-between py-1 px-1 text-xs font-bold border-b border-slate-100 pb-2 mb-1.5">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {isMultiSelectMode ? (
                           <input
                             type="checkbox"
@@ -1241,8 +1246,15 @@ export default function SavedAddresses({
                           <Bookmark className="h-3.5 w-3.5 fill-indigo-100/40 text-indigo-700 shrink-0" />
                         )}
                         <span className="text-indigo-800 font-extrabold text-xs">{catName}</span>
-                        <span className="bg-indigo-50 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full border border-indigo-100">
-                          {addresses.length} Adres
+                        <span className="bg-indigo-50 text-indigo-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full border border-indigo-100">
+                          {totalCount} Adres
+                        </span>
+                        <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full border ${
+                          visitedCount === totalCount
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-100'
+                            : 'bg-amber-50 text-amber-800 border-amber-100'
+                        }`}>
+                          {visitedCount}/{totalCount} Gidildi
                         </span>
                       </div>
                       
