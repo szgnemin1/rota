@@ -177,7 +177,7 @@ export default function LeafletMap({
   const createCustomMarkerIcon = (color: string, label: string, isStar = false, addressLabel?: string) => {
     const glyph = isStar ? '★' : label;
     const labelHtml = addressLabel ? `
-      <span class="absolute bottom-full mb-1.5 bg-indigo-950/90 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded shadow-md border border-slate-700/30 whitespace-nowrap pointer-events-none tracking-wide text-center uppercase min-w-[32px]">
+      <span class="absolute bottom-full mb-1.5 bg-indigo-950/90 text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded shadow-md border border-slate-700/30 whitespace-nowrap pointer-events-none tracking-wide text-center uppercase min-w-[32px] opacity-0 group-hover:opacity-100 transition-opacity duration-150">
         ${addressLabel}
       </span>
     ` : '';
