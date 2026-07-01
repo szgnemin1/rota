@@ -90,8 +90,11 @@ export default function LeafletMap({
   };
 
   const handleSelectGroupForRoute = (catName: string) => {
-    const groupAddresses = savedAddresses.filter(addr => (addr.category || 'Genel') === catName);
-    if (groupAddresses.length === 0) return;
+    const groupAddresses = savedAddresses.filter(addr => (addr.category || 'Genel') === catName && !addr.visited);
+    if (groupAddresses.length === 0) {
+      alert(`"${catName}" grubundaki tüm adresler zaten 'Gidildi' olarak işaretlenmiş!`);
+      return;
+    }
 
     const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
       const R = 6371;
@@ -488,16 +491,22 @@ export default function LeafletMap({
       if (excludedCategories.includes(cat)) return; // Skip if filtered out on map
 
       const isSelected = selectedAddressForMap && selectedAddressForMap.id === addr.id;
-      // High-contrast category based marker colors or indigo-600 if active/selected
-      const markerColor = isSelected ? '#4f46e5' : getCategoryColor(cat);
-      const savedIcon = createCustomMarkerIcon(markerColor, '★', true, addr.label);
+      const isVisited = !!addr.visited;
+      const markerGlyph = isVisited ? '✓' : '★';
+      const markerColor = isSelected ? '#4f46e5' : isVisited ? '#10b981' : getCategoryColor(cat);
+      const savedIcon = createCustomMarkerIcon(markerColor, markerGlyph, true, addr.label);
       const marker = L.marker([addr.lat, addr.lng], { icon: savedIcon });
 
       marker.bindPopup(`
         <div class="p-1 font-sans text-slate-800">
-          <p class="font-bold text-sm text-indigo-600 flex items-center gap-1">★ ${addr.label}</p>
-          <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mt-0.5">${cat}</p>
-          <p class="text-xs text-slate-500 mt-1">${addr.address}</p>
+          <p class="font-bold text-sm text-indigo-600 flex items-center gap-1">${isVisited ? '✓' : '★'} ${addr.label}</p>
+          <div class="flex items-center gap-1.5 mt-0.5">
+            <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wide bg-slate-100 px-1 py-0.2 rounded">${cat}</span>
+            <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded ${isVisited ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
+              ${isVisited ? 'Gidildi ✓' : 'Bekliyor'}
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mt-1.5">${addr.address}</p>
         </div>
       `);
 

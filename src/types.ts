@@ -6,6 +6,7 @@ export interface SavedAddress {
   lng: number;
   icon?: string; // Icon identifier
   category?: string; // Grouping category, e.g., "Depolar", "Müşteriler"
+  visited?: boolean; // Visit status: true for visited, false or undefined for unvisited
 }
 
 export interface RouteStop {

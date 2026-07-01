@@ -249,7 +249,7 @@ async function startServer() {
   app.put("/api/addresses/:id", authenticateToken, (req, res) => {
     try {
       const idToUpdate = req.params.id;
-      const { label, address, lat, lng, category } = req.body;
+      const { label, address, lat, lng, category, visited } = req.body;
 
       if (!label || !address || typeof lat !== "number" || typeof lng !== "number") {
         res.status(400).json({ error: "Eksik veya geçersiz adres bilgileri." });
@@ -271,7 +271,8 @@ async function startServer() {
         address,
         lat,
         lng,
-        category: category || "Genel"
+        category: category || "Genel",
+        visited: typeof visited === "boolean" ? visited : addresses[index].visited
       };
 
       fs.writeFileSync(ADDRESS_FILE, JSON.stringify(addresses, null, 2), "utf-8");

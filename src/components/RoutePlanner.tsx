@@ -209,6 +209,104 @@ export default function RoutePlanner({
   // Check if we have plotted a real route
   const isRouteConfigured = routeStops.every((s) => s.lat !== 0 && s.lng !== 0);
 
+  // Haversine distance calculator
+  const getDistanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+    const R = 6371; // Earth radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const activeCoords = routeStops.filter(s => s.lat !== 0 && s.lng !== 0);
+
+  // We find which groups are represented in the current route stops
+  const activeRouteLabels = new Set(routeStops.map(s => s.label.toLowerCase() + '|' + s.address.toLowerCase()));
+  const activeRouteSavedAddrs = savedAddresses.filter(addr => 
+    activeRouteLabels.has(addr.label.toLowerCase() + '|' + addr.address.toLowerCase())
+  );
+  const activeRouteCategories = new Set(activeRouteSavedAddrs.map(addr => addr.category || 'Genel'));
+
+  // Candidates: NOT on route, NOT visited, and belong to a different group than represented on the active route stops
+  const candidates = savedAddresses.filter(addr => {
+    const isAlreadyOnRoute = routeStops.some(s => 
+      (s.lat === addr.lat && s.lng === addr.lng) ||
+      (s.label.toLowerCase() === addr.label.toLowerCase() && s.address.toLowerCase() === addr.address.toLowerCase())
+    );
+    if (isAlreadyOnRoute) return false;
+    if (addr.visited) return false;
+
+    // Check if the group is already on the route.
+    // If activeRouteCategories is populated, candidate's group must NOT be in it.
+    const candidateCat = addr.category || 'Genel';
+    if (activeRouteCategories.size > 0 && activeRouteCategories.has(candidateCat)) {
+      return false;
+    }
+    return true;
+  });
+
+  const nearbySuggestions = activeCoords.length > 0 ? candidates.map(addr => {
+    let minDistance = Infinity;
+    let closestToStopLabel = '';
+
+    activeCoords.forEach(stop => {
+      const d = getDistanceKm(stop.lat, stop.lng, addr.lat, addr.lng);
+      if (d < minDistance) {
+        minDistance = d;
+        closestToStopLabel = stop.label || (stop.id === 'origin' ? 'Başlangıç' : stop.id === 'destination' ? 'Varış' : 'Durak');
+      }
+    });
+
+    return {
+      address: addr,
+      distance: minDistance,
+      closestTo: closestToStopLabel
+    };
+  })
+  .filter(item => item.distance < 25) // Suggest locations within 25 km
+  .sort((a, b) => a.distance - b.distance)
+  .slice(0, 4) : []; // Show up to 4 suggestions
+
+  const handleAddNearbyToRoute = (addr: SavedAddress) => {
+    if (routeStops.length >= 10) {
+      alert("En fazla 10 durak ekleyebilirsiniz.");
+      return;
+    }
+    
+    // Check if there is an empty stop in the routeStops we can fill, or create a new waypoint
+    const emptyStopIndex = routeStops.findIndex(s => s.id !== 'origin' && s.id !== 'destination' && !s.lat);
+    
+    if (emptyStopIndex !== -1) {
+      const updated = [...routeStops];
+      updated[emptyStopIndex] = {
+        id: routeStops[emptyStopIndex].id,
+        label: addr.label,
+        address: addr.address,
+        lat: addr.lat,
+        lng: addr.lng,
+        isSaved: true
+      };
+      setRouteStops(updated);
+    } else {
+      // Create new waypoint and insert right before the last element (destination)
+      const newWaypoint: RouteStop = {
+        id: `waypoint-${Date.now()}`,
+        label: addr.label,
+        address: addr.address,
+        lat: addr.lat,
+        lng: addr.lng,
+        isSaved: true
+      };
+      const updated = [...routeStops];
+      updated.splice(routeStops.length - 1, 0, newWaypoint);
+      setRouteStops(updated);
+    }
+  };
+
   const travelModesList: { mode: TravelMode; label: string; icon: any }[] = [
     { mode: 'DRIVING', label: 'Sürüş', icon: Car },
     { mode: 'WALKING', label: 'Yürüyüş', icon: Footprints },
@@ -438,6 +536,47 @@ export default function RoutePlanner({
             })}
           </div>
         </div>
+
+        {/* Nearby unvisited locations from other groups */}
+        {activeCoords.length > 0 && nearbySuggestions.length > 0 && (
+          <div className="border-t border-slate-100 pt-4 animate-fade-in">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-500 block">Yakındaki Diğer Grup Konumları</span>
+              <span className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold">Öneri</span>
+            </div>
+            <div className="space-y-1.5">
+              {nearbySuggestions.map(({ address, distance, closestTo }) => (
+                <div 
+                  key={address.id} 
+                  className="flex items-center justify-between gap-2 p-2 border border-slate-100 rounded-lg hover:border-indigo-100 bg-slate-50/40 hover:bg-white transition-all text-xs"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-slate-700 truncate">{address.label}</span>
+                      <span className="text-[9px] px-1 bg-indigo-50 text-indigo-600 font-medium rounded-sm">
+                        {address.category || 'Genel'}
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-[10px] truncate mt-0.5" title={address.address}>
+                      {address.address}
+                    </p>
+                    <p className="text-[9px] text-indigo-600 font-semibold mt-0.5">
+                      {distance.toFixed(1)} km ({closestTo} yakını)
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAddNearbyToRoute(address)}
+                    className="flex items-center justify-center h-7 w-7 rounded-lg bg-indigo-50 hover:bg-indigo-150 text-indigo-600 font-bold border border-indigo-200 transition-colors cursor-pointer shrink-0"
+                    title="Rotaya Ekle"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Route Stats & Navigation Steps */}
         {isRouteConfigured && routeSummary ? (
