@@ -68,7 +68,7 @@ export default function LeafletMap({
 
   // Group selection & filtering states on map
   const [excludedCategories, setExcludedCategories] = useState<string[]>([]);
-  const [showCategoryPanel, setShowCategoryPanel] = useState(true);
+  const [showCategoryPanel, setShowCategoryPanel] = useState(false);
 
   const availableCategories = Array.from(new Set(savedAddresses.map(addr => addr.category || 'Genel')));
 
@@ -874,6 +874,69 @@ export default function LeafletMap({
     setMobileTab('saved');
   };
 
+  const handleQuickAddToRoute = () => {
+    if (!clickedCoords) return;
+    const updated = [...routeStops];
+    const origin = updated.find(s => s.id === 'origin');
+    const destination = updated.find(s => s.id === 'destination');
+
+    const labelVal = clickedLabel || 'Haritadan Seçilen Nokta';
+    
+    const isOriginEmpty = !origin || !origin.lat || origin.lat === 0;
+    const isDestinationEmpty = !destination || !destination.lat || destination.lat === 0;
+
+    if (isOriginEmpty) {
+      const origIdx = updated.findIndex(s => s.id === 'origin');
+      const stop = {
+        id: 'origin',
+        label: labelVal,
+        address: clickedAddress,
+        lat: clickedCoords.lat,
+        lng: clickedCoords.lng
+      };
+      if (origIdx !== -1) {
+        updated[origIdx] = stop;
+      } else {
+        updated.unshift(stop);
+      }
+    } else if (isDestinationEmpty) {
+      const destIdx = updated.findIndex(s => s.id === 'destination');
+      const stop = {
+        id: 'destination',
+        label: labelVal,
+        address: clickedAddress,
+        lat: clickedCoords.lat,
+        lng: clickedCoords.lng
+      };
+      if (destIdx !== -1) {
+        updated[destIdx] = stop;
+      } else {
+        updated.push(stop);
+      }
+    } else {
+      const newId = `waypoint-${Date.now()}`;
+      const newWaypoint: RouteStop = {
+        id: newId,
+        label: labelVal,
+        address: clickedAddress,
+        lat: clickedCoords.lat,
+        lng: clickedCoords.lng
+      };
+      const destIdx = updated.findIndex(s => s.id === 'destination');
+      if (destIdx !== -1) {
+        updated.splice(destIdx, 0, newWaypoint);
+      } else {
+        updated.push(newWaypoint);
+      }
+    }
+
+    setRouteStops(updated);
+    setClickedCoords(null);
+    setClickedLabel('');
+    setActiveTab('route');
+    setMobileTab('route');
+  };
+
   return (
     <div className="relative w-full h-full flex flex-col">
       {/* Map HTML Canvas container */}
@@ -1244,46 +1307,63 @@ export default function LeafletMap({
             </div>
           </div>
  
+          {/* Quick Add To Route Button */}
+          <button
+            id="click-action-quick-add"
+            onClick={handleQuickAddToRoute}
+            disabled={isReverseGeocoding}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-indigo-600 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg disabled:opacity-50"
+          >
+            <Navigation className="h-4 w-4 shrink-0 rotate-45 fill-white" />
+            Rotaya Ekle (Sırayla)
+          </button>
+
           {/* Location Actions Menu Grid */}
-          <div className={`grid ${clickedLabel ? 'grid-cols-3' : 'grid-cols-2'} gap-2 border-t border-slate-100 pt-3`}>
-            <button
-              id="click-action-start"
-              onClick={handleSetAsOrigin}
-              disabled={isReverseGeocoding}
-              className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-emerald-100 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[11px] sm:text-xs transition-colors cursor-pointer"
-            >
-              <Navigation className="h-3.5 w-3.5 shrink-0" />
-              Başlangıç
-            </button>
-            <button
-              id="click-action-dest"
-              onClick={handleSetAsDestination}
-              disabled={isReverseGeocoding}
-              className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-rose-100 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] sm:text-xs transition-colors cursor-pointer"
-            >
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              Varış Yap
-            </button>
-            <button
-              id="click-action-waypoint"
-              onClick={handleAddAsWaypoint}
-              disabled={isReverseGeocoding}
-              className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-blue-100 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[11px] sm:text-xs transition-colors cursor-pointer"
-            >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              Durak Ekle
-            </button>
-            {!clickedLabel && (
+          <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Gelişmiş Durak Seçenekleri</span>
+            <div className={`grid ${clickedLabel ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
               <button
-                id="click-action-save"
-                onClick={handleSaveToAddressBook}
+                id="click-action-start"
+                onClick={handleSetAsOrigin}
                 disabled={isReverseGeocoding}
-                className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] sm:text-xs transition-colors cursor-pointer"
+                className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-emerald-100 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                title="Yolculuk başlangıç noktası olarak ayarla"
               >
-                <Bookmark className="h-3.5 w-3.5 shrink-0" />
-                Kaydet
+                <Navigation className="h-3 w-3 shrink-0" />
+                Başlangıç
               </button>
-            )}
+              <button
+                id="click-action-dest"
+                onClick={handleSetAsDestination}
+                disabled={isReverseGeocoding}
+                className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-rose-100 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                title="Yolculuk bitiş noktası olarak ayarla"
+              >
+                <MapPin className="h-3 w-3 shrink-0" />
+                Varış Yap
+              </button>
+              <button
+                id="click-action-waypoint"
+                onClick={handleAddAsWaypoint}
+                disabled={isReverseGeocoding}
+                className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-blue-100 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                title="Ara durak olarak ekle"
+              >
+                <Plus className="h-3 w-3 shrink-0" />
+                Durak Ekle
+              </button>
+              {!clickedLabel && (
+                <button
+                  id="click-action-save"
+                  onClick={handleSaveToAddressBook}
+                  disabled={isReverseGeocoding}
+                  className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                >
+                  <Bookmark className="h-3 w-3 shrink-0" />
+                  Kaydet
+                </button>
+              )}
+            </div>
           </div>
  
           {/* Close Action Overlay trigger */}
