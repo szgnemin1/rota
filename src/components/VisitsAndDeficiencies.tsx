@@ -357,29 +357,17 @@ export default function VisitsAndDeficiencies({
     let rowsHtml = '';
     sorted.forEach((addr, idx) => {
       const label = addr.label || '';
-      const category = addr.category || 'Genel';
-      const interval = intervalLabels[addr.visitInterval || 'none'];
       const lastVisit = addr.lastVisitedDate || 'Ziyaret Edilmedi';
       const defText = addr.deficiencies?.trim() 
         ? '<div style="color: #991b1b; background-color: #fef2f2; border: 1px solid #fee2e2; padding: 4px 8px; border-radius: 4px; font-weight: bold; line-height: 1.3;">' + addr.deficiencies + '</div>'
-        : '<span style="color: #cbd5e1; font-style: italic;">Yok</span>';
-      const noteText = addr.notes?.trim()
-        ? '<div style="color: #334155; background-color: #f8fafc; border: 1px solid #f1f5f9; padding: 4px 8px; border-radius: 4px; line-height: 1.3;">' + addr.notes + '</div>'
         : '<span style="color: #cbd5e1; font-style: italic;">Yok</span>';
 
       rowsHtml += `
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
           <td style="padding: 8px 10px; text-align: center; color: #64748b; font-weight: bold;">${idx + 1}</td>
           <td style="padding: 8px 10px; font-weight: bold; color: #0f172a;">${label}</td>
-          <td style="padding: 8px 10px; color: #475569;">
-            <span style="background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px; border: 1px solid #e2e8f0; font-size: 10px; font-weight: bold;">
-              ${category}
-            </span>
-          </td>
-          <td style="padding: 8px 10px; color: #475569; font-weight: 500;">${interval}</td>
           <td style="padding: 8px 10px; color: #0f766e; font-weight: bold;">${lastVisit}</td>
           <td style="padding: 8px 10px;">${defText}</td>
-          <td style="padding: 8px 10px;">${noteText}</td>
         </tr>
       `;
     });
@@ -473,12 +461,9 @@ export default function VisitsAndDeficiencies({
       '    <thead>' +
       '      <tr>' +
       '        <th style="width: 40px; text-align: center;">Sıra</th>' +
-      '        <th style="width: 220px;">Firma Adı</th>' +
-      '        <th style="width: 110px;">Kategori/Grup</th>' +
-      '        <th style="width: 110px;">Ziyaret Döngüsü</th>' +
-      '        <th style="width: 110px;">Son Ziyaret</th>' +
+      '        <th style="width: 250px;">Firma Adı</th>' +
+      '        <th style="width: 140px;">Son Ziyaret</th>' +
       '        <th>Eksiklik &amp; İhtiyaçlar</th>' +
-      '        <th>Son Görüşme Notu</th>' +
       '      </tr>' +
       '    </thead>' +
       '    <tbody>' +
