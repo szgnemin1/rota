@@ -7,6 +7,11 @@ export interface SavedAddress {
   icon?: string; // Icon identifier
   category?: string; // Grouping category, e.g., "Depolar", "Müşteriler"
   visited?: boolean; // Visit status: true for visited, false or undefined for unvisited
+  notes?: string; // Custom notes about the company/location
+  deficiencies?: string; // Deficiencies/missing items noted
+  visitInterval?: string; // e.g., 'none', '15_days', '1_month', '2_months', '3_months'
+  lastVisitedDate?: string; // YYYY-MM-DD format
+  nextVisitDate?: string; // YYYY-MM-DD format
 }
 
 export interface RouteStop {

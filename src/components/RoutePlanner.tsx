@@ -3,8 +3,9 @@ import { RouteStop, SavedAddress, TravelMode, RouteSummary } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
 import {
   MapPin, Plus, Trash2, ArrowUpDown, Navigation,
-  Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw, Star, GripVertical
+  Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw, Star, GripVertical, FileText
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 
 interface RoutePlannerProps {
   savedAddresses: SavedAddress[];
@@ -270,6 +271,201 @@ export default function RoutePlanner({
   };
 
   const mapsUrl = getMapsUrl();
+
+  const intervalLabels: Record<string, string> = {
+    'none': 'Belirtilmemiş',
+    '15_days': '15 Günde Bir',
+    '1_month': 'Ayda 1',
+    '2_months': '2 Ayda 1',
+    '3_months': '3 Ayda 1',
+    '6_months': '6 Ayda 1',
+    '1_year': 'Yılda 1',
+  };
+
+  const safePdfText = (text: string | undefined): string => {
+    if (!text) return '';
+    const map: Record<string, string> = {
+      'Ç': 'C', 'ç': 'c',
+      'Ğ': 'G', 'ğ': 'g',
+      'İ': 'I', 'ı': 'i',
+      'Ö': 'O', 'ö': 'o',
+      'Ş': 'S', 'ş': 's',
+      'Ü': 'U', 'ü': 'u'
+    };
+    return text.split('').map(char => map[char] || char).join('');
+  };
+
+  const exportRoutePDF = () => {
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    let y = 20;
+    const margin = 15;
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const maxTextWidth = pageWidth - (margin * 2);
+
+    const checkPageOverflow = (neededHeight: number) => {
+      if (y + neededHeight > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+      }
+    };
+
+    // Title
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(18);
+    doc.setTextColor(30, 41, 59);
+    doc.text(safePdfText("ROTA ZIYARET VE EKSIKLIK RAPORU"), margin, y);
+    y += 8;
+
+    // Date and Stats
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    const todayStr = new Date().toLocaleDateString('tr-TR');
+    doc.text(safePdfText(`Tarih: ${todayStr}`), margin, y);
+    
+    if (routeSummary) {
+      doc.text(safePdfText(`Mesafe: ${routeSummary.distance}  |  Sure: ${routeSummary.duration}`), margin + 60, y);
+    }
+    y += 5;
+
+    // Divider line
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 10;
+
+    const activeStops = routeStops.filter(s => s.lat !== 0 && s.lng !== 0);
+
+    if (activeStops.length === 0) {
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(239, 68, 68);
+      doc.text(safePdfText("Rotada gecerli durak bulunmuyor."), margin, y);
+      doc.save(`rota_raporu_${Date.now()}.pdf`);
+      return;
+    }
+
+    activeStops.forEach((stop, index) => {
+      const isOrigin = index === 0;
+      const isDest = index === activeStops.length - 1;
+      
+      const savedAddr = savedAddresses.find(
+        (sa) => sa.id === stop.id || (Math.abs(sa.lat - stop.lat) < 0.0001 && Math.abs(sa.lng - stop.lng) < 0.0001)
+      );
+
+      const labelVal = stop.label || (isOrigin ? "Baslangic Noktasi" : isDest ? "Varis Noktasi" : `Durak ${index + 1}`);
+      const addressVal = stop.address || "Adres belirtilmemis";
+      const notes = savedAddr?.notes || '';
+      const deficiencies = savedAddr?.deficiencies || '';
+      const category = savedAddr?.category || 'Genel';
+      const interval = savedAddr?.visitInterval && savedAddr?.visitInterval !== 'none' ? intervalLabels[savedAddr.visitInterval] : '';
+
+      let blockHeight = 15;
+      const splitAddress = doc.splitTextToSize(safePdfText(addressVal), maxTextWidth - 12);
+      blockHeight += splitAddress.length * 5;
+      
+      let splitNotes: string[] = [];
+      if (notes) {
+        splitNotes = doc.splitTextToSize(safePdfText(`Notlar: ${notes}`), maxTextWidth - 12);
+        blockHeight += splitNotes.length * 5;
+      }
+      
+      let splitDeficiencies: string[] = [];
+      if (deficiencies) {
+        splitDeficiencies = doc.splitTextToSize(safePdfText(`Eksiklikler: ${deficiencies}`), maxTextWidth - 12);
+        blockHeight += splitDeficiencies.length * 5;
+      }
+
+      checkPageOverflow(blockHeight + 10);
+
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, y, maxTextWidth, blockHeight, 'F');
+
+      if (isOrigin) {
+        doc.setFillColor(16, 185, 129);
+      } else if (isDest) {
+        doc.setFillColor(244, 63, 94);
+      } else {
+        doc.setFillColor(79, 70, 229);
+      }
+      doc.rect(margin, y, 3, blockHeight, 'F');
+
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.setTextColor(30, 41, 59);
+      
+      let stopTypeStr = `[DURAK #${index + 1}]`;
+      if (isOrigin) stopTypeStr = "[BASLANGIC]";
+      if (isDest) stopTypeStr = "[VARIS]";
+
+      doc.text(safePdfText(`${stopTypeStr} ${labelVal}`), margin + 6, y + 6);
+
+      if (savedAddr) {
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(100, 116, 139);
+        const catText = `Grup: ${category}${interval ? ` (${interval})` : ''}`;
+        doc.text(safePdfText(catText), pageWidth - margin - doc.getTextWidth(safePdfText(catText)) - 5, y + 6);
+      }
+
+      let textY = y + 12;
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(71, 85, 105);
+      
+      splitAddress.forEach((line: string) => {
+        doc.text(line, margin + 6, textY);
+        textY += 5;
+      });
+
+      if (notes) {
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(9.5);
+        doc.setTextColor(79, 70, 229);
+        splitNotes.forEach((line: string) => {
+          doc.text(line, margin + 6, textY);
+          textY += 5;
+        });
+      }
+
+      if (deficiencies) {
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9.5);
+        doc.setTextColor(220, 38, 38);
+        splitDeficiencies.forEach((line: string) => {
+          doc.text(line, margin + 6, textY);
+          textY += 5;
+        });
+      }
+
+      doc.setDrawColor(148, 163, 184);
+      doc.setLineWidth(0.3);
+      doc.rect(pageWidth - margin - 10, y + blockHeight - 8, 5, 5);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text("Gidildi", pageWidth - margin - 22, y + blockHeight - 4.5);
+
+      y += blockHeight + 6;
+    });
+
+    checkPageOverflow(15);
+    doc.setDrawColor(241, 245, 249);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 5;
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    doc.text(safePdfText("Bu rapor Rota Planlama Sistemi tarafindan otomatik uretilmistir."), margin, y);
+
+    doc.save(`rota_ziyaret_raporu_${todayStr.replace(/\./g, '_')}.pdf`);
+  };
 
   const handleCopyLink = () => {
     if (!mapsUrl) return;
@@ -777,6 +973,15 @@ export default function RoutePlanner({
                 Rota Linkini Kopyala
               </>
             )}
+          </button>
+
+          <button
+            id="export-pdf-report-btn"
+            onClick={exportRoutePDF}
+            className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition-all shadow-md cursor-pointer hover:shadow-lg"
+          >
+            <FileText className="h-3.5 w-3.5 shrink-0" />
+            Ziyaret & Eksiklik Raporunu PDF İndir
           </button>
 
           {showQr && (

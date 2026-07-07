@@ -43,6 +43,60 @@ export default function SavedAddresses({
   onSetDefaultOrigin,
   onUpdateAddressesBulkVisited
 }: SavedAddressesProps) {
+  const intervalLabels: Record<string, string> = {
+    'none': 'Belirtilmemiş',
+    '15_days': '15 Günde Bir',
+    '1_month': 'Ayda 1',
+    '2_months': '2 Ayda 1',
+    '3_months': '3 Ayda 1',
+    '6_months': '6 Ayda 1',
+    '1_year': 'Yılda 1',
+  };
+
+  const calculateNextVisitDate = (lastDateStr: string, interval: string): string => {
+    if (!lastDateStr || interval === 'none') return '';
+    const date = new Date(lastDateStr);
+    if (isNaN(date.getTime())) return '';
+
+    switch (interval) {
+      case '15_days':
+        date.setDate(date.getDate() + 15);
+        break;
+      case '1_month':
+        date.setMonth(date.getMonth() + 1);
+        break;
+      case '2_months':
+        date.setMonth(date.getMonth() + 2);
+        break;
+      case '3_months':
+        date.setMonth(date.getMonth() + 3);
+        break;
+      case '6_months':
+        date.setMonth(date.getMonth() + 6);
+        break;
+      case '1_year':
+        date.setFullYear(date.getFullYear() + 1);
+        break;
+      default:
+        return '';
+    }
+    return date.toISOString().split('T')[0];
+  };
+
+  const getNextVisitRemainingDays = (nextVisitStr?: string) => {
+    if (!nextVisitStr) return null;
+    const nextDate = new Date(nextVisitStr);
+    if (isNaN(nextDate.getTime())) return null;
+    
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    nextDate.setHours(0,0,0,0);
+    
+    const diffTime = nextDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
   const [label, setLabel] = useState('');
   const [selectedPlace, setSelectedPlace] = useState<{
     label: string;
@@ -78,6 +132,14 @@ export default function SavedAddresses({
   const [isGeocodingText, setIsGeocodingText] = useState(false);
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [editError, setEditError] = useState('');
+
+  // Periodic Visits, Notes, and Deficiencies Edit & Filter States
+  const [editNotes, setEditNotes] = useState('');
+  const [editDeficiencies, setEditDeficiencies] = useState('');
+  const [editVisitInterval, setEditVisitInterval] = useState('none');
+  const [editLastVisitedDate, setEditLastVisitedDate] = useState('');
+  const [editNextVisitDate, setEditNextVisitDate] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'due' | 'deficiencies'>('all');
 
   // Category Grouping States
   const [categoryInput, setCategoryInput] = useState('Genel');
@@ -188,6 +250,25 @@ export default function SavedAddresses({
     return (addr.label || '').toLowerCase().includes(q) || (addr.address || '').toLowerCase().includes(q);
   });
 
+  const isDueOrUpcoming = (addr: SavedAddress) => {
+    if (!addr.visitInterval || addr.visitInterval === 'none') return false;
+    if (!addr.lastVisitedDate) return true; // Has interval but never visited
+    
+    const remaining = getNextVisitRemainingDays(addr.nextVisitDate);
+    if (remaining === null) return false;
+    return remaining <= 7; // Due if today, past due, or within 7 days
+  };
+
+  const hasDeficienciesOrNotes = (addr: SavedAddress) => {
+    return !!(addr.notes?.trim() || addr.deficiencies?.trim());
+  };
+
+  const finalFilteredAddresses = filteredAddresses.filter(addr => {
+    if (filterType === 'due') return isDueOrUpcoming(addr);
+    if (filterType === 'deficiencies') return hasDeficienciesOrNotes(addr);
+    return true;
+  });
+
   const handleEditClick = (addr: SavedAddress) => {
     setEditingAddress(addr);
     setEditLabel(addr.label);
@@ -197,6 +278,11 @@ export default function SavedAddresses({
     setEditCategory(addr.category || 'Genel');
     setEditCustomCategory('');
     setEditError('');
+    setEditNotes(addr.notes || '');
+    setEditDeficiencies(addr.deficiencies || '');
+    setEditVisitInterval(addr.visitInterval || 'none');
+    setEditLastVisitedDate(addr.lastVisitedDate || '');
+    setEditNextVisitDate(addr.nextVisitDate || '');
   };
 
   const handleUpdateSubmit = (e: React.FormEvent) => {
@@ -213,12 +299,24 @@ export default function SavedAddresses({
 
     const finalCat = editCategory === 'custom' ? (editCustomCategory.trim() || 'Genel') : editCategory;
 
+    // Recalculate next visit date if last visited is updated
+    let finalNextVisit = editNextVisitDate;
+    if (editLastVisitedDate && editVisitInterval !== 'none') {
+      finalNextVisit = calculateNextVisitDate(editLastVisitedDate, editVisitInterval);
+    }
+
     onUpdateAddress(editingAddress.id, {
       label: editLabel.trim(),
       address: editAddressStr.trim(),
       lat: editLat,
       lng: editLng,
-      category: finalCat
+      category: finalCat,
+      notes: editNotes.trim(),
+      deficiencies: editDeficiencies.trim(),
+      visitInterval: editVisitInterval,
+      lastVisitedDate: editLastVisitedDate,
+      nextVisitDate: finalNextVisit,
+      visited: editingAddress.visited
     });
 
     setEditingAddress(null);
@@ -1190,31 +1288,75 @@ export default function SavedAddresses({
               <p className="text-sm font-medium">Henüz kayıtlı adres yok</p>
               <p className="text-xs mt-1 text-slate-400/80">Yukarıdaki arama çubuğunu kullanarak ilk adresinizi kaydedebilirsiniz.</p>
             </div>
-          ) : filteredAddresses.length === 0 ? (
-            <div className="text-center py-8 px-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-150 text-slate-400 animate-fade-in">
-              <AlertCircle className="h-7 w-7 mx-auto text-indigo-400 mb-2" />
-              <p className="text-xs font-semibold text-slate-700">Aramanızla eşleşen kayıtlı adres bulunamadı.</p>
-              <button
-                id="reset-search-no-results-btn"
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="mt-2 text-xs font-bold text-indigo-600 hover:text-indigo-700 underline cursor-pointer bg-indigo-50/50 hover:bg-indigo-100/60 px-3 py-1.5 rounded-lg border border-indigo-100 transition-all"
-              >
-                Aramayı Temizle
-              </button>
-            </div>
           ) : (
-            <div className="space-y-4">
-              {Object.entries(
-                filteredAddresses.reduce((groups, addr) => {
-                  const cat = addr.category || 'Genel';
-                  if (!groups[cat]) {
-                    groups[cat] = [];
-                  }
-                  groups[cat].push(addr);
-                  return groups;
-                }, {} as Record<string, SavedAddress[]>)
-              ).map(([catName, addresses]) => {
+            <>
+              {/* Adres Filtreleme Sekmeleri */}
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100/80 rounded-xl border border-slate-200 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setFilterType('all')}
+                  className={`py-1.5 px-1 rounded-lg font-bold text-center transition-all cursor-pointer text-[11px] truncate ${
+                    filterType === 'all'
+                      ? 'bg-white text-slate-800 shadow-xs font-extrabold border border-slate-150'
+                      : 'text-slate-500 hover:text-slate-700 hover:bg-white/40'
+                  }`}
+                >
+                  Tümü ({savedAddresses.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('due')}
+                  className={`py-1.5 px-1 rounded-lg font-bold text-center transition-all cursor-pointer text-[11px] truncate flex items-center justify-center gap-1 ${
+                    filterType === 'due'
+                      ? 'bg-amber-600 text-white shadow-xs font-extrabold'
+                      : 'text-amber-700 hover:bg-amber-50'
+                  }`}
+                  title="Ziyaret zamanı gelmiş veya geçmiş olanlar"
+                >
+                  ⏱ Gelenler ({savedAddresses.filter(isDueOrUpcoming).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterType('deficiencies')}
+                  className={`py-1.5 px-1 rounded-lg font-bold text-center transition-all cursor-pointer text-[11px] truncate flex items-center justify-center gap-1 ${
+                    filterType === 'deficiencies'
+                      ? 'bg-rose-600 text-white shadow-xs font-extrabold'
+                      : 'text-rose-700 hover:bg-rose-50'
+                  }`}
+                  title="Not veya eksikliği/ihtiyacı belirtilmiş firmalar"
+                >
+                  🚨 Eksikler ({savedAddresses.filter(hasDeficienciesOrNotes).length})
+                </button>
+              </div>
+
+              {finalFilteredAddresses.length === 0 ? (
+                <div className="text-center py-8 px-4 bg-slate-50/50 rounded-xl border border-dashed border-slate-150 text-slate-400 animate-fade-in">
+                  <AlertCircle className="h-7 w-7 mx-auto text-indigo-400 mb-2" />
+                  <p className="text-xs font-semibold text-slate-700">Filtreyle eşleşen kayıtlı adres bulunamadı.</p>
+                  <button
+                    id="reset-search-no-results-btn"
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setFilterType('all');
+                    }}
+                    className="mt-2 text-xs font-bold text-indigo-600 hover:text-indigo-700 underline cursor-pointer bg-indigo-50/50 hover:bg-indigo-100/60 px-3 py-1.5 rounded-lg border border-indigo-100 transition-all"
+                  >
+                    Filtreleri Temizle
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {Object.entries(
+                    finalFilteredAddresses.reduce((groups, addr) => {
+                      const cat = addr.category || 'Genel';
+                      if (!groups[cat]) {
+                        groups[cat] = [];
+                      }
+                      groups[cat].push(addr);
+                      return groups;
+                    }, {} as Record<string, SavedAddress[]>)
+                  ).map(([catName, addresses]) => {
                 const isCollapsed = collapsedCategories[catName] !== false;
                 const visitedCount = addresses.filter(a => a.visited).length;
                 const totalCount = addresses.length;
@@ -1348,6 +1490,75 @@ export default function SavedAddresses({
                                       <span>Enl: {addr.lat.toFixed(4)}</span>
                                       <span>Boy: {addr.lng.toFixed(4)}</span>
                                     </div>
+
+                                    {/* Visit Interval and Reminders */}
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {addr.visitInterval && addr.visitInterval !== 'none' && (
+                                        <span className="bg-slate-100 text-slate-700 text-[9px] font-black px-1.5 py-0.5 rounded border border-slate-200">
+                                          ⏱ {intervalLabels[addr.visitInterval]}
+                                        </span>
+                                      )}
+                                      {addr.lastVisitedDate && (
+                                        <span className="bg-slate-100 text-slate-600 text-[9px] font-bold px-1.5 py-0.5 rounded border border-slate-200" title={`Son Ziyaret Tarihi: ${addr.lastVisitedDate}`}>
+                                          Son: {addr.lastVisitedDate}
+                                        </span>
+                                      )}
+                                      {addr.visitInterval && addr.visitInterval !== 'none' && (
+                                        <>
+                                          {!addr.lastVisitedDate ? (
+                                            <span className="bg-amber-50 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded border border-amber-100">
+                                              İlk Ziyaret Bekleniyor
+                                            </span>
+                                          ) : (() => {
+                                            const remaining = getNextVisitRemainingDays(addr.nextVisitDate);
+                                            if (remaining === null) return null;
+                                            if (remaining < 0) {
+                                              return (
+                                                <span className="bg-rose-50 text-rose-700 text-[9px] font-black px-1.5 py-0.5 rounded border border-rose-150 animate-pulse">
+                                                  🚨 {Math.abs(remaining)} Gün Gecikti ({addr.nextVisitDate})
+                                                </span>
+                                              );
+                                            } else if (remaining === 0) {
+                                              return (
+                                                <span className="bg-amber-50 text-amber-700 text-[9px] font-black px-1.5 py-0.5 rounded border border-amber-200">
+                                                  📅 Bugün Ziyaret Günü!
+                                                </span>
+                                              );
+                                            } else if (remaining <= 7) {
+                                              return (
+                                                <span className="bg-amber-50 text-amber-700 text-[9px] font-black px-1.5 py-0.5 rounded border border-amber-150">
+                                                  ⏰ {remaining} Gün Kaldı ({addr.nextVisitDate})
+                                                </span>
+                                              );
+                                            } else {
+                                              return (
+                                                <span className="bg-blue-50 text-blue-700 text-[9px] font-black px-1.5 py-0.5 rounded border border-blue-100">
+                                                  ⏱ {remaining} Gün Kaldı ({addr.nextVisitDate})
+                                                </span>
+                                              );
+                                            }
+                                          })()}
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* Notes and Deficiencies Block */}
+                                    {(addr.notes || addr.deficiencies) && (
+                                      <div className="mt-2.5 p-2 bg-slate-50 border border-slate-100 rounded-lg text-[11px] space-y-1">
+                                        {addr.notes && (
+                                          <div className="flex items-start gap-1">
+                                            <span className="font-extrabold text-indigo-700 shrink-0">Not:</span>
+                                            <span className="text-slate-600 line-clamp-2" title={addr.notes}>{addr.notes}</span>
+                                          </div>
+                                        )}
+                                        {addr.deficiencies && (
+                                          <div className="flex items-start gap-1">
+                                            <span className="font-extrabold text-rose-600 shrink-0">Eksiklik:</span>
+                                            <span className="text-slate-600 line-clamp-2" title={addr.deficiencies}>{addr.deficiencies}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
 
                                     {/* Inline Group / Category Selector */}
                                     <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
@@ -1530,7 +1741,9 @@ export default function SavedAddresses({
                   </div>
                 );
               })}
-            </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -1801,7 +2014,7 @@ export default function SavedAddresses({
 
             {/* Modal Form */}
             <form onSubmit={handleUpdateSubmit} className="flex-1 flex flex-col">
-              <div className="p-6 space-y-4">
+              <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto pr-2">
                 
                 {/* Error Alert */}
                 {editError && (
@@ -1857,6 +2070,94 @@ export default function SavedAddresses({
                         required
                       />
                     )}
+                  </div>
+                </div>
+
+                {/* Ziyaret Sıklığı ve Tarih Ayarları */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3.5">
+                  <span className="text-xs font-bold text-slate-700 block border-b border-slate-200/60 pb-1.5">Rut Ziyaret Ayarları</span>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-bold text-slate-600">Ziyaret Periyodu</label>
+                      <select
+                        value={editVisitInterval}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditVisitInterval(val);
+                          // Auto calculate next visit if last visited is set
+                          if (editLastVisitedDate && val !== 'none') {
+                            setEditNextVisitDate(calculateNextVisitDate(editLastVisitedDate, val));
+                          }
+                        }}
+                        className="block w-full text-xs px-2.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium cursor-pointer"
+                      >
+                        <option value="none">Belirtilmemiş</option>
+                        <option value="15_days">15 Günde Bir</option>
+                        <option value="1_month">Ayda 1</option>
+                        <option value="2_months">2 Ayda 1</option>
+                        <option value="3_months">3 Ayda 1</option>
+                        <option value="6_months">6 Ayda 1</option>
+                        <option value="1_year">Yılda 1</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-bold text-slate-600">Son Ziyaret Tarihi</label>
+                      <input
+                        type="date"
+                        value={editLastVisitedDate}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setEditLastVisitedDate(val);
+                          // Auto calculate next visit
+                          if (val && editVisitInterval !== 'none') {
+                            setEditNextVisitDate(calculateNextVisitDate(val, editVisitInterval));
+                          }
+                        }}
+                        className="block w-full text-xs px-2.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <label className="block text-[11px] font-bold text-slate-600">Sıradaki Ziyaret Tarihi</label>
+                      {editLastVisitedDate && editVisitInterval !== 'none' && (
+                        <span className="text-[9px] text-emerald-600 font-extrabold">✓ Otomatik Hesaplandı</span>
+                      )}
+                    </div>
+                    <input
+                      type="date"
+                      value={editNextVisitDate}
+                      onChange={(e) => setEditNextVisitDate(e.target.value)}
+                      className="block w-full text-xs px-2.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Notlar ve Eksiklikler */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-600">Firma Notları</label>
+                    <textarea
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      placeholder="Görüşme notları, firma detayları..."
+                      rows={2.5}
+                      className="block w-full text-xs px-2.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium resize-none shadow-xs"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-rose-600">Eksiklikler ve İhtiyaçlar</label>
+                    <textarea
+                      value={editDeficiencies}
+                      onChange={(e) => setEditDeficiencies(e.target.value)}
+                      placeholder="Evrak eksikleri, malzeme ihtiyaçları..."
+                      rows={2.5}
+                      className="block w-full text-xs px-2.5 py-2 bg-white border border-rose-150 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 text-rose-800 border-rose-100 placeholder-rose-300 font-medium resize-none shadow-xs"
+                    />
                   </div>
                 </div>
 

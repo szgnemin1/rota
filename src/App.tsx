@@ -3,9 +3,10 @@ import { RouteStop, SavedAddress, TravelMode, RouteSummary } from './types';
 import RoutePlanner from './components/RoutePlanner';
 import SavedAddresses from './components/SavedAddresses';
 import SettingsComponent from './components/Settings';
+import VisitsAndDeficiencies from './components/VisitsAndDeficiencies';
 import LeafletMap from './components/LeafletMap';
 import { detectSmartCategory } from './utils/categoryDetector';
-import { Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal, CheckCircle2, AlertTriangle, X, Settings as SettingsIcon } from 'lucide-react';
+import { Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal, CheckCircle2, AlertTriangle, X, Settings as SettingsIcon, ClipboardList } from 'lucide-react';
 
 export default function App() {
   // Authentication states
@@ -159,8 +160,8 @@ export default function App() {
   };
 
   // Tab management (Mobile & Desktop split)
-  const [activeTab, setActiveTab] = useState<'route' | 'saved' | 'settings'>('route');
-  const [mobileTab, setMobileTab] = useState<'route' | 'saved' | 'settings' | 'map'>('route');
+  const [activeTab, setActiveTab] = useState<'route' | 'saved' | 'settings' | 'visits'>('route');
+  const [mobileTab, setMobileTab] = useState<'route' | 'saved' | 'settings' | 'map' | 'visits'>('route');
 
   // 1. Authentication Status Check
   useEffect(() => {
@@ -622,7 +623,7 @@ export default function App() {
         </header>
 
         {/* Desktop tab selector bar */}
-        <nav className="grid grid-cols-3 border-b border-slate-100 bg-slate-50/50 p-1">
+        <nav className="grid grid-cols-4 border-b border-slate-100 bg-slate-50/50 p-1">
           <button
             id="desktop-tab-route"
             onClick={() => {
@@ -652,6 +653,21 @@ export default function App() {
           >
             <Bookmark className="h-4 w-4" />
             Adres Defteri
+          </button>
+          <button
+            id="desktop-tab-visits"
+            onClick={() => {
+              setActiveTab('visits');
+              setMobileTab('visits');
+            }}
+            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+              (activeTab === 'visits')
+                ? 'bg-white text-teal-600 shadow-sm border border-slate-100'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            <ClipboardList className="h-4 w-4" />
+            Ziyaret &amp; Eksikler
           </button>
           <button
             id="desktop-tab-settings"
@@ -709,6 +725,18 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'visits' && (
+            <VisitsAndDeficiencies
+              savedAddresses={savedAddresses}
+              onUpdateAddress={handleUpdateAddress}
+              routeStops={routeStops}
+              setRouteStops={setRouteStops}
+              onSelectOnMap={handleSelectOnMap}
+              setActiveTab={setActiveTab}
+              setMobileTab={setMobileTab}
+            />
+          )}
+
           {activeTab === 'settings' && (
             <SettingsComponent
               savedAddresses={savedAddresses}
@@ -751,7 +779,7 @@ export default function App() {
       {/* BOTTOM GLOBAL TAB BAR FOR MOBILE */}
       <footer 
         id="mobile-bottom-tabs"
-        className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 grid grid-cols-4 md:hidden z-20 shadow-lg select-none"
+        className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 grid grid-cols-5 md:hidden z-20 shadow-lg select-none"
       >
         <button
           id="mobile-tab-btn-route"
@@ -779,6 +807,20 @@ export default function App() {
         >
           <Bookmark className="h-5 w-5 mb-1" />
           <span className="text-[10px] font-medium">Adreslerim</span>
+        </button>
+
+        <button
+          id="mobile-tab-btn-visits"
+          onClick={() => {
+            setActiveTab('visits');
+            setMobileTab('visits');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
+            mobileTab === 'visits' ? 'text-teal-600 font-semibold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <ClipboardList className="h-5 w-5 mb-1" />
+          <span className="text-[10px] font-medium">Rutin &amp; Eksik</span>
         </button>
 
         <button
