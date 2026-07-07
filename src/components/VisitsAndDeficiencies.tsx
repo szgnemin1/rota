@@ -215,6 +215,27 @@ export default function VisitsAndDeficiencies({
     setEditingDeficienciesId(null);
   };
 
+  // Inline update visit cycle
+  const handleUpdateVisitInterval = async (addr: SavedAddress, newInterval: string) => {
+    const { id, ...rest } = addr;
+    
+    let nextDateStr = addr.nextVisitDate || '';
+    if (addr.lastVisitedDate && newInterval !== 'none') {
+      nextDateStr = calculateNextVisitDate(addr.lastVisitedDate, newInterval);
+    } else if (newInterval === 'none') {
+      nextDateStr = '';
+    } else if (!addr.lastVisitedDate) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      nextDateStr = calculateNextVisitDate(todayStr, newInterval);
+    }
+
+    await onUpdateAddress(id, {
+      ...rest,
+      visitInterval: newInterval as any,
+      nextVisitDate: nextDateStr
+    });
+  };
+
   // Detailed Modal edit click
   const handleOpenEditModal = (addr: SavedAddress) => {
     setEditingAddress(addr);
@@ -266,92 +287,85 @@ export default function VisitsAndDeficiencies({
   return (
     <div id="visits-deficiencies-panel" className="h-full flex flex-col bg-slate-50 animate-fade-in font-sans">
       
-      {/* Header and Quick Stats */}
-      <div className="p-4 bg-white border-b border-slate-150 space-y-3.5 shadow-xs">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 shadow-xs">
-              <ClipboardList className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-extrabold text-slate-800 tracking-tight">Ziyaret &amp; Eksiklik Yönetimi</h2>
-              <p className="text-[10px] text-slate-400 font-bold">Rutin ziyaretleri, ihtiyaçları ve evrakları takip edin.</p>
-            </div>
-          </div>
+      {/* Header and Quick Stats - Ultra Compact Single Row */}
+      <div className="py-2.5 px-4 bg-white border-b border-slate-150 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 text-indigo-600 shrink-0" />
+          <span className="text-xs font-black text-slate-800 tracking-tight">Ziyaret &amp; Eksiklik Takibi</span>
         </div>
 
-        {/* Stats Grid - 2x2 Layout to prevent text overflow on 420px column/mobile */}
-        <div className="grid grid-cols-2 gap-2">
-          <div 
+        {/* Horizontal Compact Stats Pill List */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button 
             onClick={() => { setFilterType('all'); setCategoryFilter('all'); }}
-            className={`p-3 rounded-xl border text-left cursor-pointer transition-all duration-200 select-none ${
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
               filterType === 'all' && categoryFilter === 'all'
-                ? 'bg-slate-900 text-white border-slate-900 shadow-md scale-[1.01]' 
-                : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-xs'
+                ? 'bg-slate-900 text-white border-slate-900 shadow-xs' 
+                : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700 shadow-2xs'
             }`}
           >
-            <span className="text-[10px] font-bold block opacity-75">Toplam Kayıtlı</span>
-            <span className="text-xl font-black block mt-0.5">{totalFirms} <span className="text-[10px] font-normal">firma</span></span>
-          </div>
+            <span>Toplam:</span>
+            <span className="font-extrabold">{totalFirms}</span>
+          </button>
 
-          <div 
+          <button 
             onClick={() => { setFilterType('due'); setCategoryFilter('all'); }}
-            className={`p-3 rounded-xl border text-left cursor-pointer transition-all duration-200 select-none ${
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
               filterType === 'due' 
-                ? 'bg-amber-600 text-white border-amber-600 shadow-md scale-[1.01]' 
-                : 'bg-amber-50 hover:bg-amber-100/60 border-amber-200 text-amber-900 shadow-xs'
+                ? 'bg-amber-600 text-white border-amber-600 shadow-xs' 
+                : 'bg-amber-50 hover:bg-amber-100/60 border-amber-200 text-amber-900 shadow-2xs'
             }`}
           >
-            <span className="text-[10px] font-bold block opacity-75 flex items-center gap-1">⏱ Süresi Gelen</span>
-            <span className="text-xl font-black block mt-0.5">{dueFirms} <span className="text-[10px] font-normal">firma</span></span>
-          </div>
+            <span>⏱ Süresi Gelen:</span>
+            <span className="font-extrabold">{dueFirms}</span>
+          </button>
 
-          <div 
+          <button 
             onClick={() => { setFilterType('deficiencies'); setCategoryFilter('all'); }}
-            className={`p-3 rounded-xl border text-left cursor-pointer transition-all duration-200 select-none ${
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
               filterType === 'deficiencies' 
-                ? 'bg-rose-600 text-white border-rose-600 shadow-md scale-[1.01]' 
-                : 'bg-rose-50 hover:bg-rose-100/60 border-rose-200 text-rose-900 shadow-xs'
+                ? 'bg-rose-600 text-white border-rose-600 shadow-xs' 
+                : 'bg-rose-50 hover:bg-rose-100/60 border-rose-200 text-rose-950 shadow-2xs'
             }`}
           >
-            <span className="text-[10px] font-bold block opacity-75 flex items-center gap-1">🚨 Eksik / İhtiyaç</span>
-            <span className="text-xl font-black block mt-0.5">{deficiencyFirms} <span className="text-[10px] font-normal">firma</span></span>
-          </div>
+            <span>🚨 Eksik/İhtiyaç:</span>
+            <span className="font-extrabold">{deficiencyFirms}</span>
+          </button>
 
-          <div 
+          <button 
             onClick={() => { setFilterType('notes'); setCategoryFilter('all'); }}
-            className={`p-3 rounded-xl border text-left cursor-pointer transition-all duration-200 select-none ${
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
               filterType === 'notes' 
-                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-[1.01]' 
-                : 'bg-indigo-50 hover:bg-indigo-100/60 border-indigo-200 text-indigo-900 shadow-xs'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' 
+                : 'bg-indigo-50 hover:bg-indigo-100/60 border-indigo-200 text-indigo-950 shadow-2xs'
             }`}
           >
-            <span className="text-[10px] font-bold block opacity-75 flex items-center gap-1">📝 Özel Notlar</span>
-            <span className="text-xl font-black block mt-0.5">{notesFirms} <span className="text-[10px] font-normal">firma</span></span>
-          </div>
+            <span>📝 Görüşmeler:</span>
+            <span className="font-extrabold">{notesFirms}</span>
+          </button>
         </div>
       </div>
 
-      {/* Search & Group Filter Bar - Clean Stacked Layout */}
-      <div className="p-3 bg-white border-b border-slate-150 space-y-2">
-        <div className="relative">
+      {/* Search & Group Filter Bar - Clean Stacked Layout (Compact padding) */}
+      <div className="p-3 bg-white border-b border-slate-150 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+        <div className="relative flex-1 max-w-md w-full">
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
           <input
             type="text"
             placeholder="Firma adı, adres, not veya eksiklik ara..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-50 text-xs pl-8.5 pr-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-700 placeholder-slate-400 shadow-inner"
+            className="w-full bg-slate-50 text-[11px] pl-8.5 pr-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-700 placeholder-slate-400 shadow-inner"
           />
         </div>
 
         {/* Horizontal Scrollable Category Filter Badges */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 pt-0.5 scrollbar-thin select-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 scrollbar-thin select-none max-w-full">
           <button
             onClick={() => setCategoryFilter('all')}
             className={`px-3 py-1 rounded-full text-[10px] font-extrabold whitespace-nowrap transition-colors cursor-pointer ${
               categoryFilter === 'all'
-                ? 'bg-indigo-600 text-white'
+                ? 'bg-indigo-600 text-white shadow-sm'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
             }`}
           >
@@ -363,7 +377,7 @@ export default function VisitsAndDeficiencies({
               onClick={() => setCategoryFilter(cat)}
               className={`px-3 py-1 rounded-full text-[10px] font-extrabold whitespace-nowrap transition-colors cursor-pointer ${
                 categoryFilter === cat
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-indigo-600 text-white shadow-sm'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -373,10 +387,10 @@ export default function VisitsAndDeficiencies({
         </div>
       </div>
 
-      {/* Main List Area */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* Main List Area - Styled as stacked rows */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-2 bg-slate-50/60">
         {filteredAddresses.length === 0 ? (
-          <div className="text-center py-12 px-4 bg-white rounded-2xl border border-slate-150 text-slate-400 shadow-xs">
+          <div className="text-center py-12 px-4 bg-white rounded-2xl border border-slate-150 text-slate-400 shadow-xs max-w-md mx-auto mt-8">
             <AlertCircle className="h-8 w-8 mx-auto text-indigo-300 mb-2.5" />
             <p className="text-xs font-semibold text-slate-700">Aramanıza uygun firma bulunamadı.</p>
             <p className="text-[10px] text-slate-400 mt-1">Filtreleri veya grup seçimini sıfırlayabilirsiniz.</p>
@@ -395,259 +409,265 @@ export default function VisitsAndDeficiencies({
             )}
           </div>
         ) : (
-          filteredAddresses.map((addr) => {
-            const isOriginOrDestInRoute = routeStops.some((s, idx) => {
-              if (idx === 0 || idx === routeStops.length - 1) {
-                return Math.abs(s.lat - addr.lat) < 0.0001 && Math.abs(s.lng - addr.lng) < 0.0001;
-              }
-              return false;
-            });
-            const inRoute = isStopInRoute(addr);
-            const remaining = getNextVisitRemainingDays(addr.nextVisitDate);
+          <div className="flex flex-col gap-2 max-w-6xl mx-auto pb-10">
+            {filteredAddresses.map((addr) => {
+              const isOriginOrDestInRoute = routeStops.some((s, idx) => {
+                if (idx === 0 || idx === routeStops.length - 1) {
+                  return Math.abs(s.lat - addr.lat) < 0.0001 && Math.abs(s.lng - addr.lng) < 0.0001;
+                }
+                return false;
+              });
+              const inRoute = isStopInRoute(addr);
+              const remaining = getNextVisitRemainingDays(addr.nextVisitDate);
 
-            return (
-              <div 
-                key={addr.id} 
-                className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-sm transition-all p-4 flex flex-col gap-3.5"
-              >
-                {/* Info Block */}
-                <div className="space-y-2.5">
-                  <div className="flex items-start justify-between gap-2.5">
-                    <div className="space-y-1">
+              return (
+                <div 
+                  key={addr.id} 
+                  className="bg-white rounded-xl border border-slate-200 hover:border-slate-300 shadow-2xs hover:shadow-xs transition-all p-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3"
+                >
+                  {/* Left Section: Company Name, Category, Address */}
+                  <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="bg-indigo-50/80 border border-indigo-100 text-indigo-700 text-[9px] font-black px-1.5 py-0.5 rounded-md tracking-wider uppercase">
+                        <span className="bg-indigo-50/80 border border-indigo-100 text-indigo-700 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider">
                           {addr.category || 'Genel'}
                         </span>
-                        <h3 className="text-xs font-black text-slate-800 tracking-tight leading-snug">
+                        <h3 className="text-xs font-black text-slate-800 truncate" title={addr.label}>
                           {addr.label}
                         </h3>
                       </div>
-                      <p className="text-[10px] text-slate-400 font-medium max-w-full flex items-center gap-1">
+                      <p className="text-[10px] text-slate-400 font-medium truncate flex items-center gap-1 mt-0.5">
                         <MapPin className="h-3 w-3 shrink-0 text-slate-300" />
                         <span className="truncate">{addr.address}</span>
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditModal(addr)}
-                      title="Firma Bilgilerini Güncelle"
-                      className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer shrink-0 border border-transparent hover:border-indigo-100"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </button>
+                    {/* Last visit & Status badge */}
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                      {addr.lastVisitedDate && (
+                        <span className="bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded text-[9px] border border-slate-200/50">
+                          Son: {addr.lastVisitedDate}
+                        </span>
+                      )}
+
+                      {addr.visitInterval && addr.visitInterval !== 'none' && (
+                        <>
+                          {!addr.lastVisitedDate ? (
+                            <span className="bg-amber-50 text-amber-800 font-extrabold px-1.5 py-0.5 rounded text-[9px] border border-amber-200">
+                              Bekleniyor
+                            </span>
+                          ) : (() => {
+                            if (remaining === null) return null;
+                            if (remaining < 0) {
+                              return (
+                                <span className="bg-rose-50 text-rose-700 font-extrabold px-1.5 py-0.5 rounded text-[9px] border border-rose-200 animate-pulse flex items-center gap-0.5">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-rose-600 inline-block"></span>
+                                  {Math.abs(remaining)} G Gecikti
+                                </span>
+                              );
+                            } else if (remaining === 0) {
+                              return (
+                                <span className="bg-amber-100 text-amber-800 font-extrabold px-1.5 py-0.5 rounded text-[9px] border border-amber-300">
+                                  📅 Bugün!
+                                </span>
+                              );
+                            } else if (remaining <= 7) {
+                              return (
+                                <span className="bg-amber-50 text-amber-700 font-extrabold px-1.5 py-0.5 rounded text-[9px] border border-amber-200">
+                                  ⏱ {remaining} Gün
+                                </span>
+                              );
+                            } else {
+                              return (
+                                <span className="bg-emerald-50 text-emerald-700 font-extrabold px-1.5 py-0.5 rounded text-[9px] border border-emerald-200">
+                                  ⏱ {remaining} Gün
+                                </span>
+                              );
+                            }
+                          })()}
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Deficiencies and Notes Fields with quick inline write */}
-                  <div className="flex flex-col gap-2 pt-0.5">
-                    
-                    {/* Deficiencies Block */}
-                    <div className="p-2.5 bg-rose-50/50 border border-rose-100/70 rounded-xl space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black text-rose-800 uppercase tracking-wider flex items-center gap-1">
-                          🚨 Eksiklik &amp; İhtiyaç
-                        </span>
-                        {editingDeficienciesId !== addr.id && (
-                          <button
-                            onClick={() => {
-                              setEditingDeficienciesId(addr.id);
-                              setTempDeficiencies(addr.deficiencies || '');
-                            }}
-                            className="text-[9px] font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
-                          >
-                            Hızlı Yaz
-                          </button>
-                        )}
-                      </div>
-                      {editingDeficienciesId === addr.id ? (
-                        <div className="space-y-1.5 pt-0.5" onClick={(e) => e.stopPropagation()}>
-                          <textarea
-                            value={tempDeficiencies}
-                            onChange={(e) => setTempDeficiencies(e.target.value)}
-                            placeholder="Evrak eksikleri, malzeme ihtiyaçları..."
-                            rows={2}
-                            className="w-full text-xs bg-white border border-rose-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-rose-500 text-slate-800 shadow-inner"
-                          />
-                          <div className="flex gap-1 justify-end">
+                  {/* Middle Section: Direct Inputs for Deficiencies and Notes */}
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 lg:mx-3">
+                    {/* Deficiency Section */}
+                    <div className="p-2 bg-rose-50/40 border border-rose-100/50 rounded-lg flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[8px] font-black text-rose-800 uppercase tracking-wider">🚨 Eksiklik</span>
+                          {editingDeficienciesId !== addr.id && (
                             <button
-                              onClick={() => setEditingDeficienciesId(null)}
-                              className="px-2 py-1 text-[10px] bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 font-bold"
+                              onClick={() => {
+                                setEditingDeficienciesId(addr.id);
+                                setTempDeficiencies(addr.deficiencies || '');
+                              }}
+                              className="text-[8px] font-bold text-rose-600 hover:text-rose-700 cursor-pointer"
                             >
-                              İptal
+                              Düzenle
                             </button>
+                          )}
+                        </div>
+                        {editingDeficienciesId === addr.id ? (
+                          <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={tempDeficiencies}
+                              onChange={(e) => setTempDeficiencies(e.target.value)}
+                              placeholder="Eksik evrak vs..."
+                              className="flex-1 text-[10px] bg-white border border-rose-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-rose-500 text-slate-800"
+                            />
                             <button
                               onClick={() => handleSaveInlineDeficiencies(addr)}
-                              className="px-2 py-1 text-[10px] bg-rose-600 text-white rounded-lg hover:bg-rose-700 font-bold shadow-xs"
+                              className="px-1.5 py-0.5 text-[9px] bg-rose-600 text-white rounded font-bold hover:bg-rose-700"
                             >
                               Kaydet
                             </button>
+                            <button
+                              onClick={() => setEditingDeficienciesId(null)}
+                              className="px-1 py-0.5 text-[9px] bg-slate-100 text-slate-600 rounded font-bold hover:bg-slate-200"
+                            >
+                              X
+                            </button>
                           </div>
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-slate-600 leading-normal pl-0.5">
-                          {addr.deficiencies?.trim() ? (
-                            <span className="font-semibold text-slate-700">{addr.deficiencies}</span>
-                          ) : (
-                            <span className="text-slate-400 italic font-medium">Belirtilen eksiklik yok.</span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Notes Block */}
-                    <div className="p-2.5 bg-indigo-50/40 border border-indigo-100/60 rounded-xl space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black text-indigo-800 uppercase tracking-wider flex items-center gap-1">
-                          📝 Görüşme Notu
-                        </span>
-                        {editingNotesId !== addr.id && (
-                          <button
-                            onClick={() => {
-                              setEditingNotesId(addr.id);
-                              setTempNotes(addr.notes || '');
-                            }}
-                            className="text-[9px] font-bold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
-                          >
-                            Hızlı Yaz
-                          </button>
+                        ) : (
+                          <p className="text-[10px] text-slate-600 truncate mt-0.5">
+                            {addr.deficiencies?.trim() ? (
+                              <span className="font-semibold text-slate-700">{addr.deficiencies}</span>
+                            ) : (
+                              <span className="text-slate-400 italic">Eksiklik yok.</span>
+                            )}
+                          </p>
                         )}
                       </div>
-                      {editingNotesId === addr.id ? (
-                        <div className="space-y-1.5 pt-0.5" onClick={(e) => e.stopPropagation()}>
-                          <textarea
-                            value={tempNotes}
-                            onChange={(e) => setTempNotes(e.target.value)}
-                            placeholder="Müşteri görüşmesi veya firma bilgileri..."
-                            rows={2}
-                            className="w-full text-xs bg-white border border-indigo-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 shadow-inner"
-                          />
-                          <div className="flex gap-1 justify-end">
+                    </div>
+
+                    {/* Notes Section */}
+                    <div className="p-2 bg-indigo-50/40 border border-indigo-100/40 rounded-lg flex items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[8px] font-black text-indigo-800 uppercase tracking-wider">📝 Görüşme Notu</span>
+                          {editingNotesId !== addr.id && (
                             <button
-                              onClick={() => setEditingNotesId(null)}
-                              className="px-2 py-1 text-[10px] bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 font-bold"
+                              onClick={() => {
+                                setEditingNotesId(addr.id);
+                                setTempNotes(addr.notes || '');
+                              }}
+                              className="text-[8px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer"
                             >
-                              İptal
+                              Düzenle
                             </button>
+                          )}
+                        </div>
+                        {editingNotesId === addr.id ? (
+                          <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              value={tempNotes}
+                              onChange={(e) => setTempNotes(e.target.value)}
+                              placeholder="Son durum vs..."
+                              className="flex-1 text-[10px] bg-white border border-indigo-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                            />
                             <button
                               onClick={() => handleSaveInlineNotes(addr)}
-                              className="px-2 py-1 text-[10px] bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-bold shadow-xs"
+                              className="px-1.5 py-0.5 text-[9px] bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700"
                             >
                               Kaydet
                             </button>
+                            <button
+                              onClick={() => setEditingNotesId(null)}
+                              className="px-1 py-0.5 text-[9px] bg-slate-100 text-slate-600 rounded font-bold hover:bg-slate-200"
+                            >
+                              X
+                            </button>
                           </div>
-                        </div>
-                      ) : (
-                        <p className="text-[11px] text-slate-600 leading-normal pl-0.5">
-                          {addr.notes?.trim() ? (
-                            <span className="font-semibold text-slate-700">{addr.notes}</span>
-                          ) : (
-                            <span className="text-slate-400 italic font-medium">Kayıtlı özel not yok.</span>
-                          )}
-                        </p>
-                      )}
+                        ) : (
+                          <p className="text-[10px] text-slate-600 truncate mt-0.5">
+                            {addr.notes?.trim() ? (
+                              <span className="font-semibold text-slate-700">{addr.notes}</span>
+                            ) : (
+                              <span className="text-slate-400 italic">Görüşme notu yok.</span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Section: Döngü Dropdown & Actions */}
+                  <div className="flex flex-row items-center justify-between lg:justify-end gap-2.5 shrink-0 border-t lg:border-t-0 pt-2 lg:pt-0">
+                    
+                    {/* Direct Döngü Dropdown */}
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <span className="text-slate-450 font-bold shrink-0">Döngü:</span>
+                      <select
+                        value={addr.visitInterval || 'none'}
+                        onChange={(e) => handleUpdateVisitInterval(addr, e.target.value as any)}
+                        className="bg-slate-100 text-slate-700 border border-slate-200 text-[10px] font-extrabold py-1 px-1.5 rounded-lg cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500 hover:bg-slate-200 transition-colors"
+                      >
+                        <option value="none">Belirtilmemiş</option>
+                        <option value="15_days">15 Günde Bir</option>
+                        <option value="1_month">Ayda 1</option>
+                        <option value="2_months">2 Ayda 1</option>
+                        <option value="3_months">3 Ayda 1</option>
+                        <option value="6_months">6 Ayda 1</option>
+                        <option value="1_year">Yılda 1</option>
+                      </select>
+                    </div>
+
+                    {/* Buttons */}
+                    <div className="flex items-center gap-1 select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleMarkVisitedToday(addr)}
+                        className="flex items-center gap-1 px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/60 text-emerald-800 font-extrabold text-[9px] rounded-lg transition-all cursor-pointer"
+                        title="Bugün ziyaret edildi olarak kaydet"
+                      >
+                        <CheckCircle className="h-3 w-3 text-emerald-600" />
+                        Ziyaret
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={isOriginOrDestInRoute}
+                        onClick={() => handleToggleRouteStop(addr)}
+                        className={`flex items-center gap-1 px-2 py-1.5 text-[9px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                          isOriginOrDestInRoute
+                            ? 'bg-slate-50 text-slate-400 cursor-not-allowed border border-slate-200'
+                            : inRoute
+                            ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                            : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-200'
+                        }`}
+                      >
+                        <Route className={`h-3 w-3 ${isOriginOrDestInRoute ? 'text-slate-300' : inRoute ? 'text-rose-600' : 'text-indigo-600'}`} />
+                        {isOriginOrDestInRoute ? 'Süreçte' : inRoute ? 'Çıkar' : 'Ekle'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onSelectOnMap(addr)}
+                        className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 transition-all cursor-pointer"
+                        title="Haritada Göster"
+                      >
+                        <Map className="h-3.5 w-3.5 text-slate-550" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditModal(addr)}
+                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+                        title="Detaylı Düzenle"
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                      </button>
                     </div>
 
                   </div>
-
-                  {/* Routine visit indicators */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px]">
-                    <span className="text-slate-400 font-bold">Döngü:</span>
-                    <span className="bg-slate-100 text-slate-700 font-extrabold px-1.5 py-0.5 rounded-md border border-slate-200/60">
-                      ⏱ {intervalLabels[addr.visitInterval || 'none']}
-                    </span>
-
-                    {addr.lastVisitedDate && (
-                      <span className="bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded-md border border-slate-200/60">
-                        Son Ziyaret: {addr.lastVisitedDate}
-                      </span>
-                    )}
-
-                    {addr.visitInterval && addr.visitInterval !== 'none' && (
-                      <>
-                        {!addr.lastVisitedDate ? (
-                          <span className="bg-amber-50 text-amber-800 font-black px-1.5 py-0.5 rounded-md border border-amber-200">
-                            Ziyaret Bekleniyor
-                          </span>
-                        ) : (() => {
-                          if (remaining === null) return null;
-                          if (remaining < 0) {
-                            return (
-                              <span className="bg-rose-50 text-rose-700 font-black px-1.5 py-0.5 rounded-md border border-rose-200 animate-pulse flex items-center gap-0.5">
-                                <span className="h-1.5 w-1.5 rounded-full bg-rose-600 inline-block"></span>
-                                {Math.abs(remaining)} Gün Gecikti ({addr.nextVisitDate})
-                              </span>
-                            );
-                          } else if (remaining === 0) {
-                            return (
-                              <span className="bg-amber-100 text-amber-800 font-black px-1.5 py-0.5 rounded-md border border-amber-300 animate-bounce">
-                                📅 Bugün Ziyaret Günü!
-                              </span>
-                            );
-                          } else if (remaining <= 7) {
-                            return (
-                              <span className="bg-amber-50 text-amber-700 font-black px-1.5 py-0.5 rounded-md border border-amber-200">
-                                ⏱ {remaining} Gün Kaldı ({addr.nextVisitDate})
-                              </span>
-                            );
-                          } else {
-                            return (
-                              <span className="bg-emerald-50 text-emerald-700 font-black px-1.5 py-0.5 rounded-md border border-emerald-200">
-                                ⏱ {remaining} Gün Kaldı ({addr.nextVisitDate})
-                              </span>
-                            );
-                          }
-                        })()}
-                      </>
-                    )}
-                  </div>
                 </div>
-
-                {/* Unified Mobile & Desktop Action Grid - 100% width vertical card flow */}
-                <div className="grid grid-cols-3 gap-1.5 border-t border-slate-100 pt-3.5 select-none shrink-0">
-                  
-                  {/* Mark visited check */}
-                  <button
-                    type="button"
-                    onClick={() => handleMarkVisitedToday(addr)}
-                    className="flex flex-col items-center justify-center gap-1 py-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 text-emerald-800 font-extrabold text-[9px] rounded-xl transition-all cursor-pointer h-12 active:scale-95"
-                    title="Bugün ziyaret edildi olarak kaydet"
-                  >
-                    <CheckCircle className="h-4 w-4 text-emerald-600" />
-                    Ziyaret Et
-                  </button>
-
-                  {/* Route Add/Remove Toggle */}
-                  <button
-                    type="button"
-                    disabled={isOriginOrDestInRoute}
-                    onClick={() => handleToggleRouteStop(addr)}
-                    className={`flex flex-col items-center justify-center gap-1 py-2 text-[9px] font-extrabold rounded-xl transition-all h-12 active:scale-95 cursor-pointer ${
-                      isOriginOrDestInRoute
-                        ? 'bg-slate-50 text-slate-400 cursor-not-allowed border border-slate-200'
-                        : inRoute
-                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
-                        : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-200'
-                    }`}
-                  >
-                    <Route className={`h-4 w-4 ${isOriginOrDestInRoute ? 'text-slate-300' : inRoute ? 'text-rose-600' : 'text-indigo-600'}`} />
-                    {isOriginOrDestInRoute ? 'Süreçte' : inRoute ? 'Rotadan Çıkar' : 'Rotaya Ekle'}
-                  </button>
-
-                  {/* Show on Map link */}
-                  <button
-                    type="button"
-                    onClick={() => onSelectOnMap(addr)}
-                    className="flex flex-col items-center justify-center gap-1 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 font-extrabold text-[9px] rounded-xl border border-slate-200 transition-all cursor-pointer h-12 active:scale-95"
-                  >
-                    <Map className="h-4 w-4 text-slate-500" />
-                    Harita
-                  </button>
-
-                </div>
-
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
       </div>
 

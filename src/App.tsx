@@ -587,7 +587,9 @@ export default function App() {
         id="side-workspace"
         className={`${
           mobileTab === 'map' ? 'hidden' : 'flex'
-        } md:flex w-full md:w-[420px] shrink-0 flex-col bg-white border-r border-slate-200 shadow-sm z-10 h-[calc(100vh-64px)] md:h-full overflow-hidden`}
+        } md:flex ${
+          activeTab === 'visits' ? 'w-full md:w-full' : 'w-full md:w-[420px]'
+        } shrink-0 flex-col bg-white border-r border-slate-200 shadow-sm z-10 h-[calc(100vh-64px)] md:h-full overflow-hidden transition-all duration-300`}
       >
         {/* Header Branding */}
         <header className="p-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
@@ -753,7 +755,9 @@ export default function App() {
         id="map-main-canvas"
         className={`${
           mobileTab === 'map' ? 'flex' : 'hidden'
-        } md:flex flex-1 h-[calc(100vh-64px)] md:h-full relative overflow-hidden`}
+        } ${
+          activeTab === 'visits' ? 'md:hidden' : 'md:flex'
+        } flex-1 h-[calc(100vh-64px)] md:h-full relative overflow-hidden`}
       >
         <LeafletMap
           routeStops={routeStops}
