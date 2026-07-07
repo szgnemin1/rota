@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { SavedAddress, RouteStop } from '../types';
 import { 
   ClipboardList, Search, AlertCircle, CheckCircle, Clock, Calendar, 
-  Plus, Edit, Route, Check, Trash2, MapPin, Map, Info, Sparkles, Filter
+  Plus, Edit, Route, Check, Trash2, MapPin, Map, Info, Sparkles, Filter,
+  FileText, Download, Copy
 } from 'lucide-react';
 
 interface VisitsAndDeficienciesProps {
@@ -27,6 +28,9 @@ export default function VisitsAndDeficiencies({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'due' | 'deficiencies' | 'notes'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showListReportModal, setShowListReportModal] = useState(false);
+  const [copiedList, setCopiedList] = useState(false);
+  const [reportSearchQuery, setReportSearchQuery] = useState('');
   
   // Quick inline editing states
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
@@ -278,6 +282,61 @@ export default function VisitsAndDeficiencies({
     setEditingAddress(null);
   };
 
+  const handleCopyAsText = () => {
+    const sorted = [...savedAddresses].sort((a, b) => 
+      (a.label || '').localeCompare(b.label || '', 'tr')
+    );
+
+    let text = "FİRMA ZİYARET VE EKSİKLİK RAPORU\n";
+    text += `Tarih: ${new Date().toLocaleDateString('tr-TR')}\n`;
+    text += "============================================================\n\n";
+
+    sorted.forEach((addr, idx) => {
+      text += `${idx + 1}. FİRMA: ${addr.label}\n`;
+      text += `   Grup/Kategori: ${addr.category || 'Genel'}\n`;
+      text += `   Döngü: ${intervalLabels[addr.visitInterval || 'none']}\n`;
+      text += `   Son Ziyaret: ${addr.lastVisitedDate || 'Ziyaret Edilmedi'}\n`;
+      text += `   Eksiklik & İhtiyaç: ${addr.deficiencies?.trim() || 'Yok'}\n`;
+      text += `   Görüşme Notu: ${addr.notes?.trim() || 'Yok'}\n`;
+      text += "----------------------------------------\n";
+    });
+
+    navigator.clipboard.writeText(text);
+    setCopiedList(true);
+    setTimeout(() => setCopiedList(false), 2000);
+  };
+
+  const handleDownloadCSV = () => {
+    const sorted = [...savedAddresses].sort((a, b) => 
+      (a.label || '').localeCompare(b.label || '', 'tr')
+    );
+
+    const headers = ["Firma Adı", "Kategori/Grup", "Döngü", "Son Ziyaret Tarihi", "Sıradaki Ziyaret Tarihi", "Eksiklik & İhtiyaç", "Görüşme Notu"];
+    const rows = sorted.map(addr => [
+      addr.label || '',
+      addr.category || 'Genel',
+      intervalLabels[addr.visitInterval || 'none'],
+      addr.lastVisitedDate || 'Ziyaret Edilmedi',
+      addr.nextVisitDate || '',
+      (addr.deficiencies || '').replace(/"/g, '""').replace(/\n/g, ' '),
+      (addr.notes || '').replace(/"/g, '""').replace(/\n/g, ' ')
+    ]);
+
+    const csvContent = "\uFEFF" + [
+      headers.map(h => `"${h}"`).join(","),
+      ...rows.map(row => row.map(val => `"${val}"`).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `firma_ziyaret_ve_eksiklik_listesi_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Count helper stats
   const totalFirms = savedAddresses.length;
   const dueFirms = savedAddresses.filter(isDueOrUpcoming).length;
@@ -289,9 +348,19 @@ export default function VisitsAndDeficiencies({
       
       {/* Header and Quick Stats - Ultra Compact Single Row */}
       <div className="py-2.5 px-4 bg-white border-b border-slate-150 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-center gap-2">
-          <ClipboardList className="h-4 w-4 text-indigo-600 shrink-0" />
-          <span className="text-xs font-black text-slate-800 tracking-tight">Ziyaret &amp; Eksiklik Takibi</span>
+        <div className="flex items-center justify-between w-full sm:w-auto gap-3">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-indigo-600 shrink-0" />
+            <span className="text-xs font-black text-slate-800 tracking-tight">Ziyaret &amp; Eksiklik Takibi</span>
+          </div>
+          <button
+            onClick={() => setShowListReportModal(true)}
+            className="flex items-center gap-1 py-1 px-2.5 rounded-lg text-[10px] font-black bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/50 transition-colors cursor-pointer shadow-3xs"
+            title="Tüm firmaların alfabetik listesi ve raporu"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            <span>Firma Listesi Al</span>
+          </button>
         </div>
 
         {/* Horizontal Compact Stats Pill List */}
@@ -858,6 +927,165 @@ export default function VisitsAndDeficiencies({
           </div>
         </div>
       )}
+
+      {/* ALPHABETICAL FIRM LIST REPORT MODAL */}
+      {showListReportModal && (() => {
+        const reportSortedFirms = [...savedAddresses]
+          .sort((a, b) => (a.label || '').localeCompare(b.label || '', 'tr'))
+          .filter(addr => {
+            const q = reportSearchQuery.toLowerCase().trim();
+            if (!q) return true;
+            return (addr.label || '').toLowerCase().includes(q) ||
+                   (addr.category || '').toLowerCase().includes(q) ||
+                   (addr.deficiencies || '').toLowerCase().includes(q) ||
+                   (addr.notes || '').toLowerCase().includes(q);
+          });
+
+        return (
+          <div 
+            id="firm-list-report-modal-backdrop"
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in"
+            onClick={() => { setShowListReportModal(false); setReportSearchQuery(''); }}
+          >
+            <div 
+              id="firm-list-report-modal"
+              className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-slate-100 flex flex-col max-h-[85vh] overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="p-5 border-b border-slate-150 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-indigo-100 text-indigo-700">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800 tracking-tight">Alfabetik Firma Listesi &amp; Raporu</h3>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Toplam {reportSortedFirms.length} Firma Listeleniyor</p>
+                  </div>
+                </div>
+
+                {/* Search in Report */}
+                <div className="relative w-full sm:w-64 shrink-0">
+                  <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Rapor içinde ara..."
+                    value={reportSearchQuery}
+                    onChange={(e) => setReportSearchQuery(e.target.value)}
+                    className="w-full bg-white text-[11px] pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium text-slate-700 placeholder-slate-400"
+                  />
+                </div>
+              </div>
+
+              {/* Action Toolbar */}
+              <div className="px-5 py-3 bg-indigo-50/50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-[10px] font-bold text-indigo-900/70">
+                  ⚠️ Bu liste alfabetik olarak sıralanmıştır. Excel olarak indirebilir veya kopyalayabilirsiniz.
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyAsText}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                      copiedList 
+                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 shadow-2xs'
+                    }`}
+                  >
+                    {copiedList ? <Check className="h-3.5 w-3.5 animate-bounce" /> : <Copy className="h-3.5 w-3.5" />}
+                    <span>{copiedList ? 'Kopyalandı!' : 'Metin Olarak Kopyala'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleDownloadCSV}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-xs cursor-pointer"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Excel / CSV Olarak İndir</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable Report Content */}
+              <div className="flex-1 overflow-auto p-5">
+                {reportSortedFirms.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400">
+                    <AlertCircle className="h-8 w-8 mx-auto text-slate-300 mb-2" />
+                    <p className="text-xs font-bold">Firma bulunamadı.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider bg-slate-50/50">
+                          <th className="py-2.5 px-3">Firma Adı</th>
+                          <th className="py-2.5 px-3">Grup</th>
+                          <th className="py-2.5 px-3">Döngü</th>
+                          <th className="py-2.5 px-3">Son Ziyaret</th>
+                          <th className="py-2.5 px-3">Eksiklik &amp; İhtiyaçlar</th>
+                          <th className="py-2.5 px-3">Son Görüşme Notu</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {reportSortedFirms.map((addr) => (
+                          <tr key={addr.id} className="hover:bg-slate-50/70 transition-colors text-xs">
+                            <td className="py-3 px-3 font-black text-slate-900">{addr.label}</td>
+                            <td className="py-3 px-3">
+                              <span className="bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded text-[10px] border border-slate-200/50">
+                                {addr.category || 'Genel'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 font-medium text-slate-500">
+                              {intervalLabels[addr.visitInterval || 'none']}
+                            </td>
+                            <td className="py-3 px-3 font-semibold text-slate-600">
+                              {addr.lastVisitedDate ? (
+                                <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 font-bold">
+                                  {addr.lastVisitedDate}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic">Ziyaret edilmedi</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              {addr.deficiencies?.trim() ? (
+                                <div className="text-[11px] bg-rose-50 border border-rose-100 text-rose-800 font-bold rounded p-1.5 max-w-xs leading-normal">
+                                  {addr.deficiencies}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">Yok</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              {addr.notes?.trim() ? (
+                                <div className="text-[11px] bg-slate-50 border border-slate-150 text-slate-700 font-medium rounded p-1.5 max-w-xs leading-normal">
+                                  {addr.notes}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">Yok</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-slate-150 flex justify-end bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => { setShowListReportModal(false); setReportSearchQuery(''); }}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 bg-slate-200 hover:bg-slate-300 rounded-lg transition-all cursor-pointer"
+                >
+                  Kapat
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
