@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { SavedAddress, RouteStop } from '../types';
 import { 
   ClipboardList, Search, AlertCircle, CheckCircle, Clock, Calendar, 
   Plus, Edit, Route, Check, Trash2, MapPin, Map, Info, Sparkles, Filter,
-  FileText, Download, Copy
+  FileText, Download, Copy, Printer
 } from 'lucide-react';
 
 interface VisitsAndDeficienciesProps {
@@ -306,35 +307,196 @@ export default function VisitsAndDeficiencies({
     setTimeout(() => setCopiedList(false), 2000);
   };
 
-  const handleDownloadCSV = () => {
+  const handleDownloadExcel = () => {
     const sorted = [...savedAddresses].sort((a, b) => 
       (a.label || '').localeCompare(b.label || '', 'tr')
     );
 
-    const headers = ["Firma Adı", "Kategori/Grup", "Döngü", "Son Ziyaret Tarihi", "Sıradaki Ziyaret Tarihi", "Eksiklik & İhtiyaç", "Görüşme Notu"];
-    const rows = sorted.map(addr => [
-      addr.label || '',
-      addr.category || 'Genel',
-      intervalLabels[addr.visitInterval || 'none'],
-      addr.lastVisitedDate || 'Ziyaret Edilmedi',
-      addr.nextVisitDate || '',
-      (addr.deficiencies || '').replace(/"/g, '""').replace(/\n/g, ' '),
-      (addr.notes || '').replace(/"/g, '""').replace(/\n/g, ' ')
-    ]);
+    const data = sorted.map((addr, idx) => ({
+      "Sıra No": idx + 1,
+      "Firma Adı": addr.label || '',
+      "Kategori/Grup": addr.category || 'Genel',
+      "Ziyaret Döngüsü": intervalLabels[addr.visitInterval || 'none'],
+      "Son Ziyaret Tarihi": addr.lastVisitedDate || 'Ziyaret Edilmedi',
+      "Sıradaki Ziyaret Tarihi": addr.nextVisitDate || 'Belirtilmemiş',
+      "Eksiklik & İhtiyaçlar": addr.deficiencies || 'Yok',
+      "Son Görüşme Notu": addr.notes || 'Yok'
+    }));
 
-    const csvContent = "\uFEFF" + [
-      headers.map(h => `"${h}"`).join(","),
-      ...rows.map(row => row.map(val => `"${val}"`).join(","))
-    ].join("\n");
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Firma Raporu");
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `firma_ziyaret_ve_eksiklik_listesi_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Auto-adjust column widths for premium looking excel
+    const maxLengths = data.reduce<Record<string, number>>((acc, row) => {
+      Object.entries(row).forEach(([key, val]) => {
+        const len = String(val).length;
+        acc[key] = Math.max(acc[key] || 0, len);
+      });
+      return acc;
+    }, {});
+
+    worksheet["!cols"] = Object.keys(maxLengths).map(key => ({
+      wch: Math.max(maxLengths[key] + 3, key.length + 3)
+    }));
+
+    XLSX.writeFile(workbook, `Firma_Ziyaret_ve_Eksiklik_Raporu_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handlePrintPDF = () => {
+    const sorted = [...savedAddresses].sort((a, b) => 
+      (a.label || '').localeCompare(b.label || '', 'tr')
+    );
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Yazdırma penceresi engellendi. Lütfen izin verin.");
+      return;
+    }
+
+    let rowsHtml = '';
+    sorted.forEach((addr, idx) => {
+      const label = addr.label || '';
+      const category = addr.category || 'Genel';
+      const interval = intervalLabels[addr.visitInterval || 'none'];
+      const lastVisit = addr.lastVisitedDate || 'Ziyaret Edilmedi';
+      const defText = addr.deficiencies?.trim() 
+        ? '<div style="color: #991b1b; background-color: #fef2f2; border: 1px solid #fee2e2; padding: 4px 8px; border-radius: 4px; font-weight: bold; line-height: 1.3;">' + addr.deficiencies + '</div>'
+        : '<span style="color: #cbd5e1; font-style: italic;">Yok</span>';
+      const noteText = addr.notes?.trim()
+        ? '<div style="color: #334155; background-color: #f8fafc; border: 1px solid #f1f5f9; padding: 4px 8px; border-radius: 4px; line-height: 1.3;">' + addr.notes + '</div>'
+        : '<span style="color: #cbd5e1; font-style: italic;">Yok</span>';
+
+      rowsHtml += `
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+          <td style="padding: 8px 10px; text-align: center; color: #64748b; font-weight: bold;">${idx + 1}</td>
+          <td style="padding: 8px 10px; font-weight: bold; color: #0f172a;">${label}</td>
+          <td style="padding: 8px 10px; color: #475569;">
+            <span style="background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px; border: 1px solid #e2e8f0; font-size: 10px; font-weight: bold;">
+              ${category}
+            </span>
+          </td>
+          <td style="padding: 8px 10px; color: #475569; font-weight: 500;">${interval}</td>
+          <td style="padding: 8px 10px; color: #0f766e; font-weight: bold;">${lastVisit}</td>
+          <td style="padding: 8px 10px;">${defText}</td>
+          <td style="padding: 8px 10px;">${noteText}</td>
+        </tr>
+      `;
+    });
+
+    const reportDate = new Date().toLocaleDateString('tr-TR');
+    const totalCount = sorted.length;
+
+    const htmlContent = 
+      '<!DOCTYPE html>' +
+      '<html>' +
+      '<head>' +
+      '  <title>Firma Ziyaret & Eksiklik Raporu</title>' +
+      '  <meta charset="utf-8">' +
+      '  <style>' +
+      '    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");' +
+      '    body { ' +
+      '      font-family: "Inter", sans-serif; ' +
+      '      padding: 40px; ' +
+      '      color: #1e293b; ' +
+      '      background-color: white;' +
+      '      -webkit-print-color-adjust: exact;' +
+      '      print-color-adjust: exact;' +
+      '    }' +
+      '    .header-container { ' +
+      '      display: flex; ' +
+      '      justify-content: space-between; ' +
+      '      align-items: flex-start; ' +
+      '      border-bottom: 3px solid #4f46e5; ' +
+      '      padding-bottom: 20px; ' +
+      '      margin-bottom: 30px; ' +
+      '    }' +
+      '    .app-title { ' +
+      '      font-size: 24px; ' +
+      '      font-weight: 800; ' +
+      '      color: #1e1b4b; ' +
+      '      letter-spacing: -0.5px;' +
+      '      margin: 0;' +
+      '    }' +
+      '    .app-subtitle { ' +
+      '      font-size: 12px; ' +
+      '      color: #4f46e5; ' +
+      '      font-weight: 700; ' +
+      '      margin: 4px 0 0 0;' +
+      '      text-transform: uppercase;' +
+      '      letter-spacing: 0.5px;' +
+      '    }' +
+      '    .meta-box { ' +
+      '      text-align: right; ' +
+      '      font-size: 11px; ' +
+      '      color: #64748b; ' +
+      '      line-height: 1.6;' +
+      '    }' +
+      '    .meta-val {' +
+      '      font-weight: 700;' +
+      '      color: #0f172a;' +
+      '    }' +
+      '    table { ' +
+      '      width: 100%; ' +
+      '      border-collapse: collapse; ' +
+      '      margin-top: 10px; ' +
+      '    }' +
+      '    th { ' +
+      '      background-color: #f8fafc; ' +
+      '      padding: 12px 10px; ' +
+      '      border-bottom: 2px solid #cbd5e1; ' +
+      '      text-align: left; ' +
+      '      font-size: 10px; ' +
+      '      font-weight: 800; ' +
+      '      text-transform: uppercase; ' +
+      '      color: #475569; ' +
+      '      letter-spacing: 0.5px;' +
+      '    }' +
+      '    @media print {' +
+      '      body { padding: 0; }' +
+      '      @page { size: A4 landscape; margin: 15mm; }' +
+      '    }' +
+      '  </style>' +
+      '</head>' +
+      '<body>' +
+      '  <div class="header-container">' +
+      '    <div>' +
+      '      <h1 class="app-title">FİRMA ZİYARET VE EKSİKLİK RAPORU</h1>' +
+      '      <p class="app-subtitle">Alfabetik Sıralı Tüm Kayıtlı Firmalar</p>' +
+      '    </div>' +
+      '    <div class="meta-box">' +
+      '      <div>Rapor Tarihi: <span class="meta-val">' + reportDate + '</span></div>' +
+      '      <div>Toplam Firma Sayısı: <span class="meta-val">' + totalCount + '</span></div>' +
+      '    </div>' +
+      '  </div>' +
+      '  <table>' +
+      '    <thead>' +
+      '      <tr>' +
+      '        <th style="width: 40px; text-align: center;">Sıra</th>' +
+      '        <th style="width: 220px;">Firma Adı</th>' +
+      '        <th style="width: 110px;">Kategori/Grup</th>' +
+      '        <th style="width: 110px;">Ziyaret Döngüsü</th>' +
+      '        <th style="width: 110px;">Son Ziyaret</th>' +
+      '        <th>Eksiklik &amp; İhtiyaçlar</th>' +
+      '        <th>Son Görüşme Notu</th>' +
+      '      </tr>' +
+      '    </thead>' +
+      '    <tbody>' +
+             rowsHtml +
+      '    </tbody>' +
+      '  </table>' +
+      '  <script>' +
+      '    window.onload = function() {' +
+      '      setTimeout(function() {' +
+      '        window.print();' +
+      '      }, 400);' +
+      '    };' +
+      '  </script>' +
+      '</body>' +
+      '</html>';
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   // Count helper stats
@@ -996,11 +1158,19 @@ export default function VisitsAndDeficiencies({
                   </button>
 
                   <button
-                    onClick={handleDownloadCSV}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all shadow-xs cursor-pointer"
+                    onClick={handlePrintPDF}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-extrabold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg transition-all shadow-2xs cursor-pointer"
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    <span>PDF Olarak Yazdır</span>
+                  </button>
+
+                  <button
+                    onClick={handleDownloadExcel}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-all shadow-xs cursor-pointer"
                   >
                     <Download className="h-3.5 w-3.5" />
-                    <span>Excel / CSV Olarak İndir</span>
+                    <span>Excel (.xlsx) İndir</span>
                   </button>
                 </div>
               </div>
