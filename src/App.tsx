@@ -766,6 +766,7 @@ export default function App() {
           routeSummary={routeSummary}
           onSummaryCalculated={setRouteSummary}
           savedAddresses={savedAddresses}
+          onUpdateAddress={handleUpdateAddress}
           selectedAddressForMap={selectedAddressForMap}
           onSaveClickedAddress={(addr) => setPrefilledAddress(addr)}
           setActiveTab={setActiveTab}

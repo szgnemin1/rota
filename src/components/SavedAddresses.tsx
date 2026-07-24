@@ -133,8 +133,11 @@ export default function SavedAddresses({
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [editError, setEditError] = useState('');
 
-  // Periodic Visits, Notes, and Deficiencies Edit & Filter States
-  const [editNotes, setEditNotes] = useState('');
+  // Periodic Visits, Phone, Contact Person, and Deficiencies Edit & Filter States
+  const [phoneInput, setPhoneInput] = useState('');
+  const [contactPersonInput, setContactPersonInput] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editContactPerson, setEditContactPerson] = useState('');
   const [editDeficiencies, setEditDeficiencies] = useState('');
   const [editVisitInterval, setEditVisitInterval] = useState('none');
   const [editLastVisitedDate, setEditLastVisitedDate] = useState('');
@@ -260,7 +263,7 @@ export default function SavedAddresses({
   };
 
   const hasDeficienciesOrNotes = (addr: SavedAddress) => {
-    return !!(addr.notes?.trim() || addr.deficiencies?.trim());
+    return !!(addr.phone?.trim() || addr.contactPerson?.trim() || addr.deficiencies?.trim());
   };
 
   const finalFilteredAddresses = filteredAddresses.filter(addr => {
@@ -278,7 +281,8 @@ export default function SavedAddresses({
     setEditCategory(addr.category || 'Genel');
     setEditCustomCategory('');
     setEditError('');
-    setEditNotes(addr.notes || '');
+    setEditPhone(addr.phone || '');
+    setEditContactPerson(addr.contactPerson || '');
     setEditDeficiencies(addr.deficiencies || '');
     setEditVisitInterval(addr.visitInterval || 'none');
     setEditLastVisitedDate(addr.lastVisitedDate || '');
@@ -311,7 +315,8 @@ export default function SavedAddresses({
       lat: editLat,
       lng: editLng,
       category: finalCat,
-      notes: editNotes.trim(),
+      phone: editPhone.trim(),
+      contactPerson: editContactPerson.trim(),
       deficiencies: editDeficiencies.trim(),
       visitInterval: editVisitInterval,
       lastVisitedDate: editLastVisitedDate,
@@ -955,13 +960,17 @@ export default function SavedAddresses({
       address: selectedPlace.address,
       lat: selectedPlace.lat,
       lng: selectedPlace.lng,
-      category: finalCategory
+      category: finalCategory,
+      phone: phoneInput.trim(),
+      contactPerson: contactPersonInput.trim()
     };
 
     onAddAddress(newAddress);
     
     // Clear form
     setLabel('');
+    setPhoneInput('');
+    setContactPersonInput('');
     setSelectedPlace(null);
     setCategoryInput('Genel');
     setCustomCategoryInput('');
@@ -1075,6 +1084,31 @@ export default function SavedAddresses({
                     className="block w-full text-sm px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
                     required
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Telefon Numarası</label>
+                    <input
+                      id="new-address-phone"
+                      type="tel"
+                      value={phoneInput}
+                      onChange={(e) => setPhoneInput(e.target.value)}
+                      placeholder="örn. 0532 123 4567"
+                      className="block w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Yetkili Kişi İsmi</label>
+                    <input
+                      id="new-address-contact"
+                      type="text"
+                      value={contactPersonInput}
+                      onChange={(e) => setContactPersonInput(e.target.value)}
+                      placeholder="örn. Ahmet Yılmaz"
+                      className="block w-full text-xs px-3 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -1542,13 +1576,21 @@ export default function SavedAddresses({
                                       )}
                                     </div>
 
-                                    {/* Notes and Deficiencies Block */}
-                                    {(addr.notes || addr.deficiencies) && (
+                                    {/* Phone, Contact Person and Deficiencies Block */}
+                                    {(addr.phone || addr.contactPerson || addr.deficiencies) && (
                                       <div className="mt-2.5 p-2 bg-slate-50 border border-slate-100 rounded-lg text-[11px] space-y-1">
-                                        {addr.notes && (
-                                          <div className="flex items-start gap-1">
-                                            <span className="font-extrabold text-indigo-700 shrink-0">Not:</span>
-                                            <span className="text-slate-600 line-clamp-2" title={addr.notes}>{addr.notes}</span>
+                                        {addr.phone && (
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-extrabold text-indigo-700 shrink-0">Tel:</span>
+                                            <a href={`tel:${addr.phone}`} onClick={(e) => e.stopPropagation()} className="text-indigo-600 font-semibold hover:underline">
+                                              {addr.phone}
+                                            </a>
+                                          </div>
+                                        )}
+                                        {addr.contactPerson && (
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-extrabold text-indigo-700 shrink-0">Yetkili:</span>
+                                            <span className="text-slate-700 font-medium">{addr.contactPerson}</span>
                                           </div>
                                         )}
                                         {addr.deficiencies && (
@@ -2136,17 +2178,29 @@ export default function SavedAddresses({
                   </div>
                 </div>
 
-                {/* Notlar ve Eksiklikler */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-slate-600">Firma Notları</label>
-                    <textarea
-                      value={editNotes}
-                      onChange={(e) => setEditNotes(e.target.value)}
-                      placeholder="Görüşme notları, firma detayları..."
-                      rows={2.5}
-                      className="block w-full text-xs px-2.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium resize-none shadow-xs"
-                    />
+                {/* Telefon, Yetkili Kişi ve Eksiklikler */}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-600">Telefon Numarası</label>
+                      <input
+                        type="tel"
+                        value={editPhone}
+                        onChange={(e) => setEditPhone(e.target.value)}
+                        placeholder="0532 123 4567"
+                        className="block w-full text-xs px-2.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium shadow-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-600">Yetkili Kişi İsmi</label>
+                      <input
+                        type="text"
+                        value={editContactPerson}
+                        onChange={(e) => setEditContactPerson(e.target.value)}
+                        placeholder="Ahmet Yılmaz"
+                        className="block w-full text-xs px-2.5 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium shadow-xs"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-1.5">
@@ -2155,7 +2209,7 @@ export default function SavedAddresses({
                       value={editDeficiencies}
                       onChange={(e) => setEditDeficiencies(e.target.value)}
                       placeholder="Evrak eksikleri, malzeme ihtiyaçları..."
-                      rows={2.5}
+                      rows={2}
                       className="block w-full text-xs px-2.5 py-2 bg-white border border-rose-150 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 text-rose-800 border-rose-100 placeholder-rose-300 font-medium resize-none shadow-xs"
                     />
                   </div>

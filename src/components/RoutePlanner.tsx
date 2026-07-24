@@ -361,7 +361,8 @@ export default function RoutePlanner({
 
       const labelVal = stop.label || (isOrigin ? "Baslangic Noktasi" : isDest ? "Varis Noktasi" : `Durak ${index + 1}`);
       const addressVal = stop.address || "Adres belirtilmemis";
-      const notes = savedAddr?.notes || '';
+      const phone = savedAddr?.phone || '';
+      const contactPerson = savedAddr?.contactPerson || '';
       const deficiencies = savedAddr?.deficiencies || '';
       const category = savedAddr?.category || 'Genel';
       const interval = savedAddr?.visitInterval && savedAddr?.visitInterval !== 'none' ? intervalLabels[savedAddr.visitInterval] : '';
@@ -370,10 +371,10 @@ export default function RoutePlanner({
       const splitAddress = doc.splitTextToSize(safePdfText(addressVal), maxTextWidth - 12);
       blockHeight += splitAddress.length * 5;
       
-      let splitNotes: string[] = [];
-      if (notes) {
-        splitNotes = doc.splitTextToSize(safePdfText(`Notlar: ${notes}`), maxTextWidth - 12);
-        blockHeight += splitNotes.length * 5;
+      let splitContact: string[] = [];
+      if (phone || contactPerson) {
+        splitContact = doc.splitTextToSize(safePdfText(`Iletisim: ${phone} ${contactPerson ? `(${contactPerson})` : ''}`), maxTextWidth - 12);
+        blockHeight += splitContact.length * 5;
       }
       
       let splitDeficiencies: string[] = [];
@@ -424,11 +425,11 @@ export default function RoutePlanner({
         textY += 5;
       });
 
-      if (notes) {
+      if (phone || contactPerson) {
         doc.setFont('Helvetica', 'normal');
         doc.setFontSize(9.5);
         doc.setTextColor(79, 70, 229);
-        splitNotes.forEach((line: string) => {
+        splitContact.forEach((line: string) => {
           doc.text(line, margin + 6, textY);
           textY += 5;
         });

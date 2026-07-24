@@ -249,7 +249,7 @@ async function startServer() {
   app.put("/api/addresses/:id", authenticateToken, (req, res) => {
     try {
       const idToUpdate = req.params.id;
-      const { label, address, lat, lng, category, visited, notes, deficiencies, visitInterval, lastVisitedDate, nextVisitDate } = req.body;
+      const { label, address, lat, lng, category, visited, phone, contactPerson, deficiencies, visitInterval, lastVisitedDate, nextVisitDate } = req.body;
 
       if (!label || !address || typeof lat !== "number" || typeof lng !== "number") {
         res.status(400).json({ error: "Eksik veya geçersiz adres bilgileri." });
@@ -273,7 +273,8 @@ async function startServer() {
         lng,
         category: category || "Genel",
         visited: typeof visited === "boolean" ? visited : addresses[index].visited,
-        notes: typeof notes === "string" ? notes : addresses[index].notes,
+        phone: typeof phone === "string" ? phone : addresses[index].phone,
+        contactPerson: typeof contactPerson === "string" ? contactPerson : addresses[index].contactPerson,
         deficiencies: typeof deficiencies === "string" ? deficiencies : addresses[index].deficiencies,
         visitInterval: typeof visitInterval === "string" ? visitInterval : addresses[index].visitInterval,
         lastVisitedDate: typeof lastVisitedDate === "string" ? lastVisitedDate : addresses[index].lastVisitedDate,

@@ -14,6 +14,7 @@ interface LeafletMapProps {
   routeSummary: RouteSummary | null;
   onSummaryCalculated: (summary: RouteSummary | null) => void;
   savedAddresses: SavedAddress[];
+  onUpdateAddress?: (id: string, address: Omit<SavedAddress, 'id'>) => Promise<void>;
   selectedAddressForMap: SavedAddress | null;
   onSaveClickedAddress: (address: { address: string; lat: number; lng: number }) => void;
   setActiveTab: (tab: 'route' | 'saved') => void;
@@ -30,6 +31,7 @@ export default function LeafletMap({
   routeSummary,
   onSummaryCalculated,
   savedAddresses,
+  onUpdateAddress,
   selectedAddressForMap,
   onSaveClickedAddress,
   setActiveTab,
@@ -47,6 +49,8 @@ export default function LeafletMap({
   const [clickedCoords, setClickedCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [clickedAddress, setClickedAddress] = useState<string>('');
   const [clickedLabel, setClickedLabel] = useState<string>('');
+  const [clickedSavedAddressId, setClickedSavedAddressId] = useState<string | null>(null);
+  const [mapDeficiencyInput, setMapDeficiencyInput] = useState<string>('');
   const [isReverseGeocoding, setIsReverseGeocoding] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
@@ -498,15 +502,20 @@ export default function LeafletMap({
       const marker = L.marker([addr.lat, addr.lng], { icon: savedIcon });
 
       marker.bindPopup(`
-        <div class="p-1 font-sans text-slate-800">
-          <p class="font-bold text-sm text-indigo-600 flex items-center gap-1">${isVisited ? '✓' : '★'} ${addr.label}</p>
+        <div class="p-1 font-sans text-slate-800 min-w-[200px]">
+          <p class="font-bold text-sm text-indigo-600 flex items-center justify-between gap-1">
+            <span>${isVisited ? '✓' : '★'} ${addr.label}</span>
+          </p>
           <div class="flex items-center gap-1.5 mt-0.5">
             <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wide bg-slate-100 px-1 py-0.2 rounded">${cat}</span>
             <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded ${isVisited ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
-              ${isVisited ? 'Gidildi ✓' : 'Bekliyor'}
+              ${isVisited ? 'Gidildi ✓' : 'Gidilmedi ⏱'}
             </span>
           </div>
           <p class="text-xs text-slate-500 mt-1.5">${addr.address}</p>
+          ${addr.phone ? `<p class="text-xs text-slate-700 mt-1"><b>Tel:</b> ${addr.phone}</p>` : ''}
+          ${addr.contactPerson ? `<p class="text-xs text-slate-700 mt-0.5"><b>Yetkili:</b> ${addr.contactPerson}</p>` : ''}
+          ${addr.deficiencies ? `<p class="text-xs text-rose-600 font-semibold mt-1 bg-rose-50 p-1 rounded border border-rose-100"><b>Eksiklik:</b> ${addr.deficiencies}</p>` : ''}
         </div>
       `);
 
@@ -515,6 +524,8 @@ export default function LeafletMap({
         setClickedCoords({ lat: addr.lat, lng: addr.lng });
         setClickedAddress(addr.address);
         setClickedLabel(addr.label);
+        setClickedSavedAddressId(addr.id);
+        setMapDeficiencyInput(addr.deficiencies || '');
       });
 
       markersGroup.addLayer(marker);
@@ -1282,103 +1293,185 @@ export default function LeafletMap({
       )}
 
       {/* Interactive Map Click Context Menu overlay */}
-      {clickedCoords && (
-        <div 
-          id="map-click-overlay-card"
-          className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-white rounded-2xl shadow-xl border border-slate-200 p-4 w-[92%] max-w-sm mx-auto flex flex-col gap-3 transition-all duration-200 animate-in slide-in-from-bottom-5"
-        >
-          {/* Geocoding Info */}
-          <div className="flex items-start gap-2.5">
-            <div className="h-7 w-7 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0 border border-indigo-100 text-indigo-600 mt-0.5">
-              <MapPin className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                {clickedLabel ? `Kayıtlı Adres: ${clickedLabel}` : 'Haritadan Seçilen Nokta'}
-              </span>
-              <p className="text-slate-800 text-xs font-semibold leading-relaxed line-clamp-2 mt-0.5" title={clickedAddress}>
-                {clickedAddress}
-              </p>
-              {isReverseGeocoding && (
-                <span className="text-[10px] text-blue-600 flex items-center gap-1 mt-0.5">
-                  <Loader2 className="h-3 w-3 animate-spin inline" /> Adres sorgulanıyor...
-                </span>
-              )}
-            </div>
-          </div>
- 
-          {/* Quick Add To Route Button */}
-          <button
-            id="click-action-quick-add"
-            onClick={handleQuickAddToRoute}
-            disabled={isReverseGeocoding}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-indigo-600 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg disabled:opacity-50"
-          >
-            <Navigation className="h-4 w-4 shrink-0 rotate-45 fill-white" />
-            Rotaya Ekle (Sırayla)
-          </button>
+      {clickedCoords && (() => {
+        const matchedSavedAddress = savedAddresses.find(a => 
+          (clickedSavedAddressId && a.id === clickedSavedAddressId) ||
+          (clickedLabel && a.label === clickedLabel) ||
+          (Math.abs(a.lat - clickedCoords.lat) < 0.0001 && Math.abs(a.lng - clickedCoords.lng) < 0.0001)
+        );
 
-          {/* Location Actions Menu Grid */}
-          <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3">
-            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Gelişmiş Durak Seçenekleri</span>
-            <div className={`grid ${clickedLabel ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
-              <button
-                id="click-action-start"
-                onClick={handleSetAsOrigin}
-                disabled={isReverseGeocoding}
-                className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-emerald-100 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
-                title="Yolculuk başlangıç noktası olarak ayarla"
-              >
-                <Navigation className="h-3 w-3 shrink-0" />
-                Başlangıç
-              </button>
-              <button
-                id="click-action-dest"
-                onClick={handleSetAsDestination}
-                disabled={isReverseGeocoding}
-                className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-rose-100 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
-                title="Yolculuk bitiş noktası olarak ayarla"
-              >
-                <MapPin className="h-3 w-3 shrink-0" />
-                Varış Yap
-              </button>
-              <button
-                id="click-action-waypoint"
-                onClick={handleAddAsWaypoint}
-                disabled={isReverseGeocoding}
-                className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-blue-100 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
-                title="Ara durak olarak ekle"
-              >
-                <Plus className="h-3 w-3 shrink-0" />
-                Durak Ekle
-              </button>
-              {!clickedLabel && (
-                <button
-                  id="click-action-save"
-                  onClick={handleSaveToAddressBook}
-                  disabled={isReverseGeocoding}
-                  className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
-                >
-                  <Bookmark className="h-3 w-3 shrink-0" />
-                  Kaydet
-                </button>
-              )}
-            </div>
-          </div>
- 
-          {/* Close Action Overlay trigger */}
-          <button
-            id="click-action-close"
-            onClick={() => {
-              setClickedCoords(null);
-              setClickedLabel('');
-            }}
-            className="text-center text-[11px] text-slate-400 hover:text-slate-600 transition-colors pt-1"
+        return (
+          <div 
+            id="map-click-overlay-card"
+            className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-white rounded-2xl shadow-xl border border-slate-200 p-4 w-[92%] max-w-sm mx-auto flex flex-col gap-3 transition-all duration-200 animate-in slide-in-from-bottom-5"
           >
-            Vazgeç / Kapat
-          </button>
-        </div>
-      )}
+            {/* Geocoding Info */}
+            <div className="flex items-start gap-2.5">
+              <div className="h-7 w-7 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0 border border-indigo-100 text-indigo-600 mt-0.5">
+                <MapPin className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {clickedLabel ? `Kayıtlı Adres: ${clickedLabel}` : 'Haritadan Seçilen Nokta'}
+                  </span>
+                  {matchedSavedAddress && (
+                    <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${matchedSavedAddress.visited ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                      {matchedSavedAddress.visited ? 'Gidildi ✓' : 'Gidilmedi ⏱'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-slate-800 text-xs font-semibold leading-relaxed line-clamp-2 mt-0.5" title={clickedAddress}>
+                  {clickedAddress}
+                </p>
+                {matchedSavedAddress?.phone && (
+                  <p className="text-xs text-indigo-700 font-semibold mt-1">
+                    <b>Tel:</b> <a href={`tel:${matchedSavedAddress.phone}`} className="hover:underline">{matchedSavedAddress.phone}</a>
+                    {matchedSavedAddress.contactPerson && <span className="ml-2 text-slate-600 font-normal">({matchedSavedAddress.contactPerson})</span>}
+                  </p>
+                )}
+                {isReverseGeocoding && (
+                  <span className="text-[10px] text-blue-600 flex items-center gap-1 mt-0.5">
+                    <Loader2 className="h-3 w-3 animate-spin inline" /> Adres sorgulanıyor...
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* If a saved address is selected, show Visited toggle & Deficiencies editor */}
+            {matchedSavedAddress && onUpdateAddress && (
+              <div className="space-y-2 border-t border-slate-100 pt-2.5">
+                {/* Visited Status Toggle */}
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Ziyaret Durumu:</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const { id, ...rest } = matchedSavedAddress;
+                      const nextVisited = !matchedSavedAddress.visited;
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      await onUpdateAddress(id, {
+                        ...rest,
+                        visited: nextVisited,
+                        lastVisitedDate: nextVisited ? todayStr : matchedSavedAddress.lastVisitedDate
+                      });
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 border ${
+                      matchedSavedAddress.visited
+                        ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 shadow-xs'
+                    }`}
+                  >
+                    {matchedSavedAddress.visited ? '✓ Gidildi (Değiştir: Gidilmedi yap)' : '⏱ Gidildi Olarak İşaretle'}
+                  </button>
+                </div>
+
+                {/* Deficiencies quick editor */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-rose-600">Eksiklik / İhtiyaç:</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={mapDeficiencyInput}
+                      onChange={(e) => setMapDeficiencyInput(e.target.value)}
+                      placeholder="Eksiklik veya ihtiyaç yazın..."
+                      className="flex-1 text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const { id, ...rest } = matchedSavedAddress;
+                        await onUpdateAddress(id, {
+                          ...rest,
+                          deficiencies: mapDeficiencyInput.trim()
+                        });
+                        alert("Eksiklik kaydedildi!");
+                      }}
+                      className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Kaydet
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+ 
+            {/* Quick Add To Route Button */}
+            <button
+              id="click-action-quick-add"
+              onClick={handleQuickAddToRoute}
+              disabled={isReverseGeocoding}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-indigo-600 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg disabled:opacity-50"
+            >
+              <Navigation className="h-4 w-4 shrink-0 rotate-45 fill-white" />
+              Rotaya Ekle (Sırayla)
+            </button>
+
+            {/* Location Actions Menu Grid */}
+            <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Gelişmiş Durak Seçenekleri</span>
+              <div className={`grid ${clickedLabel ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}>
+                <button
+                  id="click-action-start"
+                  onClick={handleSetAsOrigin}
+                  disabled={isReverseGeocoding}
+                  className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-emerald-100 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                  title="Yolculuk başlangıç noktası olarak ayarla"
+                >
+                  <Navigation className="h-3 w-3 shrink-0" />
+                  Başlangıç
+                </button>
+                <button
+                  id="click-action-dest"
+                  onClick={handleSetAsDestination}
+                  disabled={isReverseGeocoding}
+                  className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-rose-100 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                  title="Yolculuk bitiş noktası olarak ayarla"
+                >
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  Varış Yap
+                </button>
+                <button
+                  id="click-action-waypoint"
+                  onClick={handleAddAsWaypoint}
+                  disabled={isReverseGeocoding}
+                  className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-blue-100 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                  title="Ara durak olarak ekle"
+                >
+                  <Plus className="h-3 w-3 shrink-0" />
+                  Durak Ekle
+                </button>
+                {!clickedLabel && (
+                  <button
+                    id="click-action-save"
+                    onClick={handleSaveToAddressBook}
+                    disabled={isReverseGeocoding}
+                    className="flex items-center justify-center gap-1.5 py-2 px-1 rounded-lg border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] sm:text-xs transition-colors cursor-pointer"
+                  >
+                    <Bookmark className="h-3 w-3 shrink-0" />
+                    Kaydet
+                  </button>
+                )}
+              </div>
+            </div>
+   
+            {/* Close Action Overlay trigger */}
+            <button
+              id="click-action-close"
+              onClick={() => {
+                setClickedCoords(null);
+                setClickedLabel('');
+                setClickedSavedAddressId(null);
+              }}
+              className="text-center text-[11px] text-slate-400 hover:text-slate-600 transition-colors pt-1"
+            >
+              Vazgeç / Kapat
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Mini user notification guide overlay */}
       {!isNavigating && (

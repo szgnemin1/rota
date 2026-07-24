@@ -34,8 +34,9 @@ export default function VisitsAndDeficiencies({
   const [reportSearchQuery, setReportSearchQuery] = useState('');
   
   // Quick inline editing states
-  const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
-  const [tempNotes, setTempNotes] = useState('');
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const [tempPhone, setTempPhone] = useState('');
+  const [tempContactPerson, setTempContactPerson] = useState('');
   const [editingDeficienciesId, setEditingDeficienciesId] = useState<string | null>(null);
   const [tempDeficiencies, setTempDeficiencies] = useState('');
 
@@ -118,8 +119,8 @@ export default function VisitsAndDeficiencies({
     return !!addr.deficiencies?.trim();
   };
 
-  const hasNotes = (addr: SavedAddress) => {
-    return !!addr.notes?.trim();
+  const hasContactInfo = (addr: SavedAddress) => {
+    return !!(addr.phone?.trim() || addr.contactPerson?.trim());
   };
 
   // Extract unique categories for filter
@@ -132,7 +133,8 @@ export default function VisitsAndDeficiencies({
     const matchesSearch = !q || 
       (addr.label || '').toLowerCase().includes(q) || 
       (addr.address || '').toLowerCase().includes(q) ||
-      (addr.notes || '').toLowerCase().includes(q) ||
+      (addr.phone || '').toLowerCase().includes(q) ||
+      (addr.contactPerson || '').toLowerCase().includes(q) ||
       (addr.deficiencies || '').toLowerCase().includes(q);
 
     if (!matchesSearch) return false;
@@ -146,7 +148,7 @@ export default function VisitsAndDeficiencies({
     // Tab filter type
     if (filterType === 'due') return isDueOrUpcoming(addr);
     if (filterType === 'deficiencies') return hasDeficiencies(addr);
-    if (filterType === 'notes') return hasNotes(addr);
+    if (filterType === 'notes') return hasContactInfo(addr);
 
     return true;
   });
@@ -200,14 +202,19 @@ export default function VisitsAndDeficiencies({
     }
   };
 
-  // Inline notes submit
-  const handleSaveInlineNotes = async (addr: SavedAddress) => {
+  // Detailed Modal edit state
+  const [editPhone, setEditPhone] = useState('');
+  const [editContactPerson, setEditContactPerson] = useState('');
+
+  // Inline contact info submit
+  const handleSaveInlineContact = async (addr: SavedAddress) => {
     const { id, ...rest } = addr;
     await onUpdateAddress(id, {
       ...rest,
-      notes: tempNotes.trim()
+      phone: tempPhone.trim(),
+      contactPerson: tempContactPerson.trim()
     });
-    setEditingNotesId(null);
+    setEditingContactId(null);
   };
 
   // Inline deficiencies submit
@@ -247,7 +254,8 @@ export default function VisitsAndDeficiencies({
     setEditLabel(addr.label);
     setEditCategory(addr.category || 'Genel');
     setEditCustomCategory('');
-    setEditNotes(addr.notes || '');
+    setEditPhone(addr.phone || '');
+    setEditContactPerson(addr.contactPerson || '');
     setEditDeficiencies(addr.deficiencies || '');
     setEditVisitInterval(addr.visitInterval || 'none');
     setEditLastVisitedDate(addr.lastVisitedDate || '');
@@ -272,7 +280,8 @@ export default function VisitsAndDeficiencies({
       lat: editingAddress.lat,
       lng: editingAddress.lng,
       category: finalCat,
-      notes: editNotes.trim(),
+      phone: editPhone.trim(),
+      contactPerson: editContactPerson.trim(),
       deficiencies: editDeficiencies.trim(),
       visitInterval: editVisitInterval,
       lastVisitedDate: editLastVisitedDate,
@@ -294,11 +303,11 @@ export default function VisitsAndDeficiencies({
 
     sorted.forEach((addr, idx) => {
       text += `${idx + 1}. FİRMA: ${addr.label}\n`;
-      text += `   Grup/Kategori: ${addr.category || 'Genel'}\n`;
-      text += `   Döngü: ${intervalLabels[addr.visitInterval || 'none']}\n`;
-      text += `   Son Ziyaret: ${addr.lastVisitedDate || 'Ziyaret Edilmedi'}\n`;
+      text += `   Telefon: ${addr.phone || 'Belirtilmedi'}\n`;
+      text += `   Yetkili Kişi: ${addr.contactPerson || 'Belirtilmedi'}\n`;
+      text += `   Adres: ${addr.address || ''}\n`;
+      text += `   Son Ziyaret Tarihi: ${addr.lastVisitedDate || 'Ziyaret Edilmedi'}\n`;
       text += `   Eksiklik & İhtiyaç: ${addr.deficiencies?.trim() || 'Yok'}\n`;
-      text += `   Görüşme Notu: ${addr.notes?.trim() || 'Yok'}\n`;
       text += "----------------------------------------\n";
     });
 
@@ -314,13 +323,12 @@ export default function VisitsAndDeficiencies({
 
     const data = sorted.map((addr, idx) => ({
       "Sıra No": idx + 1,
-      "Firma Adı": addr.label || '',
-      "Kategori/Grup": addr.category || 'Genel',
-      "Ziyaret Döngüsü": intervalLabels[addr.visitInterval || 'none'],
+      "Firma Unvanı": addr.label || '',
+      "Telefon Numarası": addr.phone || '',
+      "Yetkili Kişi İsmi": addr.contactPerson || '',
+      "Adres": addr.address || '',
       "Son Ziyaret Tarihi": addr.lastVisitedDate || 'Ziyaret Edilmedi',
-      "Sıradaki Ziyaret Tarihi": addr.nextVisitDate || 'Belirtilmemiş',
-      "Eksiklik & İhtiyaçlar": addr.deficiencies || 'Yok',
-      "Son Görüşme Notu": addr.notes || 'Yok'
+      "Eksiklik & İhtiyaçlar": addr.deficiencies || 'Yok'
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
@@ -357,6 +365,9 @@ export default function VisitsAndDeficiencies({
     let rowsHtml = '';
     sorted.forEach((addr, idx) => {
       const label = addr.label || '';
+      const phone = addr.phone ? `<div><b>Tel:</b> ${addr.phone}</div>` : '';
+      const contact = addr.contactPerson ? `<div><b>Yetkili:</b> ${addr.contactPerson}</div>` : '';
+      const phoneAndContact = (phone || contact) ? `${phone}${contact}` : '<span style="color: #94a3b8; font-style: italic;">Yok</span>';
       const lastVisit = addr.lastVisitedDate || 'Ziyaret Edilmedi';
       const defText = addr.deficiencies?.trim() 
         ? '<div style="color: #991b1b; background-color: #fef2f2; border: 1px solid #fee2e2; padding: 4px 8px; border-radius: 4px; font-weight: bold; line-height: 1.3;">' + addr.deficiencies + '</div>'
@@ -366,6 +377,8 @@ export default function VisitsAndDeficiencies({
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
           <td style="padding: 8px 10px; text-align: center; color: #64748b; font-weight: bold;">${idx + 1}</td>
           <td style="padding: 8px 10px; font-weight: bold; color: #0f172a;">${label}</td>
+          <td style="padding: 8px 10px; color: #334155;">${phoneAndContact}</td>
+          <td style="padding: 8px 10px; color: #475569; max-width: 200px;">${addr.address || ''}</td>
           <td style="padding: 8px 10px; color: #0f766e; font-weight: bold;">${lastVisit}</td>
           <td style="padding: 8px 10px;">${defText}</td>
         </tr>
@@ -461,8 +474,10 @@ export default function VisitsAndDeficiencies({
       '    <thead>' +
       '      <tr>' +
       '        <th style="width: 40px; text-align: center;">Sıra</th>' +
-      '        <th style="width: 250px;">Firma Adı</th>' +
-      '        <th style="width: 140px;">Son Ziyaret</th>' +
+      '        <th style="width: 200px;">Firma Unvanı</th>' +
+      '        <th style="width: 160px;">Telefon / Yetkili</th>' +
+      '        <th style="width: 220px;">Adres</th>' +
+      '        <th style="width: 120px;">Son Ziyaret</th>' +
       '        <th>Eksiklik &amp; İhtiyaçlar</th>' +
       '      </tr>' +
       '    </thead>' +
@@ -488,7 +503,7 @@ export default function VisitsAndDeficiencies({
   const totalFirms = savedAddresses.length;
   const dueFirms = savedAddresses.filter(isDueOrUpcoming).length;
   const deficiencyFirms = savedAddresses.filter(hasDeficiencies).length;
-  const notesFirms = savedAddresses.filter(hasNotes).length;
+  const contactFirms = savedAddresses.filter(hasContactInfo).length;
 
   return (
     <div id="visits-deficiencies-panel" className="h-full flex flex-col bg-slate-50 animate-fade-in font-sans">
@@ -556,8 +571,8 @@ export default function VisitsAndDeficiencies({
                 : 'bg-indigo-50 hover:bg-indigo-100/60 border-indigo-200 text-indigo-950 shadow-2xs'
             }`}
           >
-            <span>📝 Görüşmeler:</span>
-            <span className="font-extrabold">{notesFirms}</span>
+            <span>📞 İletişim Var:</span>
+            <span className="font-extrabold">{contactFirms}</span>
           </button>
         </div>
       </div>
@@ -759,55 +774,76 @@ export default function VisitsAndDeficiencies({
                       </div>
                     </div>
 
-                    {/* Notes Section */}
-                    <div className="p-2 bg-indigo-50/40 border border-indigo-100/40 rounded-lg flex items-center justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[8px] font-black text-indigo-800 uppercase tracking-wider">📝 Görüşme Notu</span>
-                          {editingNotesId !== addr.id && (
-                            <button
-                              onClick={() => {
-                                setEditingNotesId(addr.id);
-                                setTempNotes(addr.notes || '');
-                              }}
-                              className="text-[8px] font-bold text-indigo-600 hover:text-indigo-700 cursor-pointer"
-                            >
-                              Düzenle
-                            </button>
-                          )}
-                        </div>
-                        {editingNotesId === addr.id ? (
-                          <div className="flex gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                    {/* Phone & Contact Person Section */}
+                    <div className="p-2 bg-indigo-50/40 border border-indigo-100/40 rounded-lg flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[8px] font-black text-indigo-800 uppercase tracking-wider block">📞 İletişim Bilgileri</span>
+                        {editingContactId !== addr.id && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingContactId(addr.id);
+                              setTempPhone(addr.phone || '');
+                              setTempContactPerson(addr.contactPerson || '');
+                            }}
+                            className="text-[9px] font-extrabold text-indigo-600 hover:text-indigo-800 cursor-pointer hover:underline"
+                          >
+                            {addr.phone || addr.contactPerson ? 'Düzenle' : '+ İletişim Ekle'}
+                          </button>
+                        )}
+                      </div>
+
+                      {editingContactId === addr.id ? (
+                        <div className="flex flex-col gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <input
+                              type="tel"
+                              value={tempPhone}
+                              onChange={(e) => setTempPhone(e.target.value)}
+                              placeholder="Tel (0532 123 4567)"
+                              className="text-[10px] bg-white border border-indigo-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                            />
                             <input
                               type="text"
-                              value={tempNotes}
-                              onChange={(e) => setTempNotes(e.target.value)}
-                              placeholder="Son durum vs..."
-                              className="flex-1 text-[10px] bg-white border border-indigo-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                              value={tempContactPerson}
+                              onChange={(e) => setTempContactPerson(e.target.value)}
+                              placeholder="Yetkili Kişi İsmi"
+                              className="text-[10px] bg-white border border-indigo-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
                             />
+                          </div>
+                          <div className="flex justify-end gap-1">
                             <button
-                              onClick={() => handleSaveInlineNotes(addr)}
-                              className="px-1.5 py-0.5 text-[9px] bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700"
+                              type="button"
+                              onClick={() => handleSaveInlineContact(addr)}
+                              className="px-2 py-0.5 text-[9px] bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 cursor-pointer"
                             >
                               Kaydet
                             </button>
                             <button
-                              onClick={() => setEditingNotesId(null)}
-                              className="px-1 py-0.5 text-[9px] bg-slate-100 text-slate-600 rounded font-bold hover:bg-slate-200"
+                              type="button"
+                              onClick={() => setEditingContactId(null)}
+                              className="px-2 py-0.5 text-[9px] bg-slate-100 text-slate-600 rounded font-bold hover:bg-slate-200 cursor-pointer"
                             >
-                              X
+                              İptal
                             </button>
                           </div>
-                        ) : (
-                          <p className="text-[10px] text-slate-600 truncate mt-0.5">
-                            {addr.notes?.trim() ? (
-                              <span className="font-semibold text-slate-700">{addr.notes}</span>
-                            ) : (
-                              <span className="text-slate-400 italic">Görüşme notu yok.</span>
-                            )}
-                          </p>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px]">
+                          {addr.phone ? (
+                            <a href={`tel:${addr.phone}`} className="font-bold text-indigo-700 hover:underline">
+                              Tel: {addr.phone}
+                            </a>
+                          ) : (
+                            <span className="text-slate-400 italic">Telefon yok</span>
+                          )}
+                          {addr.contactPerson && (
+                            <span className="text-slate-600 font-semibold">
+                              Yetkili: {addr.contactPerson}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1028,17 +1064,29 @@ export default function VisitsAndDeficiencies({
                 </div>
               </div>
 
-              {/* Notlar ve Eksiklikler */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-600">Firma Notları</label>
-                  <textarea
-                    value={editNotes}
-                    onChange={(e) => setEditNotes(e.target.value)}
-                    placeholder="Müşteri detayları, görüşme raporları..."
-                    rows={3}
-                    className="block w-full text-xs px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium resize-none"
-                  />
+              {/* İletişim Bilgileri ve Eksiklikler */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-600">Telefon Numarası</label>
+                    <input
+                      type="tel"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                      placeholder="0532 123 4567"
+                      className="block w-full text-xs px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-slate-600">Yetkili Kişi İsmi</label>
+                    <input
+                      type="text"
+                      value={editContactPerson}
+                      onChange={(e) => setEditContactPerson(e.target.value)}
+                      placeholder="Ahmet Yılmaz"
+                      className="block w-full text-xs px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 font-medium"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -1047,7 +1095,7 @@ export default function VisitsAndDeficiencies({
                     value={editDeficiencies}
                     onChange={(e) => setEditDeficiencies(e.target.value)}
                     placeholder="Eksik evrak, malzeme, teslimat detayları..."
-                    rows={3}
+                    rows={2.5}
                     className="block w-full text-xs px-2.5 py-2 bg-rose-50/20 border border-rose-100 rounded-lg focus:outline-none focus:ring-1 focus:ring-rose-500 text-rose-800 font-medium resize-none placeholder-rose-300"
                   />
                 </div>
@@ -1085,7 +1133,8 @@ export default function VisitsAndDeficiencies({
             return (addr.label || '').toLowerCase().includes(q) ||
                    (addr.category || '').toLowerCase().includes(q) ||
                    (addr.deficiencies || '').toLowerCase().includes(q) ||
-                   (addr.notes || '').toLowerCase().includes(q);
+                   (addr.phone || '').toLowerCase().includes(q) ||
+                   (addr.contactPerson || '').toLowerCase().includes(q);
           });
 
         return (
@@ -1172,12 +1221,11 @@ export default function VisitsAndDeficiencies({
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-wider bg-slate-50/50">
-                          <th className="py-2.5 px-3">Firma Adı</th>
-                          <th className="py-2.5 px-3">Grup</th>
-                          <th className="py-2.5 px-3">Döngü</th>
-                          <th className="py-2.5 px-3">Son Ziyaret</th>
+                          <th className="py-2.5 px-3">Firma Unvanı</th>
+                          <th className="py-2.5 px-3">Telefon / Yetkili</th>
+                          <th className="py-2.5 px-3">Adres</th>
+                          <th className="py-2.5 px-3">Son Ziyaret Tarihi</th>
                           <th className="py-2.5 px-3">Eksiklik &amp; İhtiyaçlar</th>
-                          <th className="py-2.5 px-3">Son Görüşme Notu</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -1185,13 +1233,21 @@ export default function VisitsAndDeficiencies({
                           <tr key={addr.id} className="hover:bg-slate-50/70 transition-colors text-xs">
                             <td className="py-3 px-3 font-black text-slate-900">{addr.label}</td>
                             <td className="py-3 px-3">
-                              <span className="bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded text-[10px] border border-slate-200/50">
-                                {addr.category || 'Genel'}
-                              </span>
+                              {addr.phone ? (
+                                <a href={`tel:${addr.phone}`} className="font-bold text-indigo-600 hover:underline block">
+                                  {addr.phone}
+                                </a>
+                              ) : null}
+                              {addr.contactPerson && (
+                                <span className="text-slate-600 font-medium text-[11px] block">
+                                  {addr.contactPerson}
+                                </span>
+                              )}
+                              {!addr.phone && !addr.contactPerson && (
+                                <span className="text-slate-400 italic text-[11px]">Belirtilmedi</span>
+                              )}
                             </td>
-                            <td className="py-3 px-3 font-medium text-slate-500">
-                              {intervalLabels[addr.visitInterval || 'none']}
-                            </td>
+                            <td className="py-3 px-3 text-slate-600 text-[11px] max-w-xs">{addr.address || '-'}</td>
                             <td className="py-3 px-3 font-semibold text-slate-600">
                               {addr.lastVisitedDate ? (
                                 <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 font-bold">
@@ -1205,15 +1261,6 @@ export default function VisitsAndDeficiencies({
                               {addr.deficiencies?.trim() ? (
                                 <div className="text-[11px] bg-rose-50 border border-rose-100 text-rose-800 font-bold rounded p-1.5 max-w-xs leading-normal">
                                   {addr.deficiencies}
-                                </div>
-                              ) : (
-                                <span className="text-slate-400 italic text-[11px]">Yok</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-3">
-                              {addr.notes?.trim() ? (
-                                <div className="text-[11px] bg-slate-50 border border-slate-150 text-slate-700 font-medium rounded p-1.5 max-w-xs leading-normal">
-                                  {addr.notes}
                                 </div>
                               ) : (
                                 <span className="text-slate-400 italic text-[11px]">Yok</span>
