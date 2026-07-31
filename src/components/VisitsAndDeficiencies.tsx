@@ -888,12 +888,13 @@ export default function VisitsAndDeficiencies({
                           isOriginOrDestInRoute
                             ? 'bg-slate-50 text-slate-400 cursor-not-allowed border border-slate-200'
                             : inRoute
-                            ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                            ? 'bg-indigo-600 text-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-indigo-600'
                             : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-200'
                         }`}
+                        title={inRoute ? "Rotadan çıkarmak için tıklayın" : "Sıradaki durak olarak ekle"}
                       >
-                        <Route className={`h-3 w-3 ${isOriginOrDestInRoute ? 'text-slate-300' : inRoute ? 'text-rose-600' : 'text-indigo-600'}`} />
-                        {isOriginOrDestInRoute ? 'Süreçte' : inRoute ? 'Çıkar' : 'Ekle'}
+                        <Route className={`h-3 w-3 ${isOriginOrDestInRoute ? 'text-slate-300' : inRoute ? 'text-current' : 'text-indigo-600'}`} />
+                        {isOriginOrDestInRoute ? 'Süreçte' : inRoute ? 'Rotaya Eklendi ✓' : 'Rotaya Ekle'}
                       </button>
 
                       <button

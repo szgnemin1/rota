@@ -15,6 +15,7 @@ interface LeafletMapProps {
   onSummaryCalculated: (summary: RouteSummary | null) => void;
   savedAddresses: SavedAddress[];
   onUpdateAddress?: (id: string, address: Omit<SavedAddress, 'id'>) => Promise<void>;
+  onClearAllVisited?: () => Promise<void>;
   selectedAddressForMap: SavedAddress | null;
   onSaveClickedAddress: (address: { address: string; lat: number; lng: number }) => void;
   setActiveTab: (tab: 'route' | 'saved') => void;
@@ -32,6 +33,7 @@ export default function LeafletMap({
   onSummaryCalculated,
   savedAddresses,
   onUpdateAddress,
+  onClearAllVisited,
   selectedAddressForMap,
   onSaveClickedAddress,
   setActiveTab,
@@ -1062,6 +1064,23 @@ export default function LeafletMap({
       {/* Floating Action Panels overlayed on top of map */}
       {!isNavigating && (
         <div className="absolute top-4 right-4 z-[1000] flex flex-col sm:flex-row gap-2">
+          {onClearAllVisited && (
+            <button
+              id="clear-all-visited-map-btn"
+              type="button"
+              onClick={async () => {
+                if (window.confirm("Haritadaki tüm 'Gidildi ✓' işaretleri temizlenecek. Devam etmek istiyor musunuz? (Son gidilme tarihleri silinmez)")) {
+                  await onClearAllVisited();
+                }
+              }}
+              className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2.5 rounded-xl shadow-md transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer"
+              title="Tüm Gidildi İşaretlerini Temizle"
+            >
+              <RotateCcw className="h-4.5 w-4.5 text-amber-500" />
+              İşaretleri Temizle
+            </button>
+          )}
+
           {routeCoordinates.length > 0 && (
             <button
               id="start-navigation-overlay-btn"
@@ -1399,15 +1418,50 @@ export default function LeafletMap({
             )}
  
             {/* Quick Add To Route Button */}
-            <button
-              id="click-action-quick-add"
-              onClick={handleQuickAddToRoute}
-              disabled={isReverseGeocoding}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-indigo-600 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg disabled:opacity-50"
-            >
-              <Navigation className="h-4 w-4 shrink-0 rotate-45 fill-white" />
-              Rotaya Ekle (Sırayla)
-            </button>
+            {(() => {
+              const isAlreadyInRoute = routeStops.some(s => 
+                s.lat !== 0 && Math.abs(s.lat - clickedCoords.lat) < 0.0001 && Math.abs(s.lng - clickedCoords.lng) < 0.0001
+              );
+              
+              if (isAlreadyInRoute) {
+                return (
+                  <button
+                    id="click-action-quick-remove"
+                    onClick={() => {
+                      const updated = routeStops.map(s => {
+                        if (Math.abs(s.lat - clickedCoords.lat) < 0.0001 && Math.abs(s.lng - clickedCoords.lng) < 0.0001) {
+                           if (s.id === 'origin' || s.id === 'destination') {
+                             return { ...s, address: '', label: '', lat: 0, lng: 0 };
+                           }
+                           return null;
+                        }
+                        return s;
+                      }).filter(Boolean) as RouteStop[];
+                      setRouteStops(updated);
+                      setClickedCoords(null);
+                      setClickedLabel('');
+                    }}
+                    disabled={isReverseGeocoding}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-rose-600 bg-rose-50 text-rose-700 font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg hover:bg-rose-100 disabled:opacity-50"
+                  >
+                    <Bookmark className="h-4 w-4 shrink-0 fill-rose-700" />
+                    Rotaya Eklendi ✓ (Rotadan Çıkar)
+                  </button>
+                );
+              }
+              
+              return (
+                <button
+                  id="click-action-quick-add"
+                  onClick={handleQuickAddToRoute}
+                  disabled={isReverseGeocoding}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-indigo-600 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg disabled:opacity-50"
+                >
+                  <Navigation className="h-4 w-4 shrink-0 rotate-45 fill-white" />
+                  Rotaya Ekle (Sırayla)
+                </button>
+              );
+            })()}
 
             {/* Location Actions Menu Grid */}
             <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3">
