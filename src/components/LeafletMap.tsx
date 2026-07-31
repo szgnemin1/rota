@@ -499,8 +499,7 @@ export default function LeafletMap({
       const isSelected = selectedAddressForMap && selectedAddressForMap.id === addr.id;
       const isVisited = !!addr.visited;
       const markerGlyph = isVisited ? '✓' : '★';
-      const markerColor = addr.customRouteColor ? addr.customRouteColor : isSelected ? '#4f46e5' : isVisited ? '#10b981' : getCategoryColor(cat);
-      console.log('Rendering marker for', addr.label, 'customRouteColor:', addr.customRouteColor, 'finalColor:', markerColor);
+      const markerColor = isVisited ? '#10b981' : addr.customRouteColor ? addr.customRouteColor : isSelected ? '#4f46e5' : '#ef4444';
       const savedIcon = createCustomMarkerIcon(markerColor, markerGlyph, true, addr.label);
       const marker = L.marker([addr.lat, addr.lng], { icon: savedIcon });
 
@@ -1470,11 +1469,8 @@ export default function LeafletMap({
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Özel Rota Grubuna Ata</span>
                 <div className="flex gap-2 items-center justify-between">
                   {[
-                    { label: 'Kırmızı Rota', value: '#ef4444' },
-                    { label: 'Mavi Rota', value: '#3b82f6' },
-                    { label: 'Yeşil Rota', value: '#10b981' },
-                    { label: 'Mor Rota', value: '#8b5cf6' },
-                    { label: 'Turuncu Rota', value: '#f97316' }
+                    { label: 'Sarı Rota', value: '#eab308' },
+                    { label: 'Mavi Rota', value: '#3b82f6' }
                   ].map(c => (
                     <button
                       key={c.value}

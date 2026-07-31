@@ -110,11 +110,8 @@ export default function VisitsAndDeficiencies({
   const [openColorMenuId, setOpenColorMenuId] = useState<string | null>(null);
   
   const ROUTE_COLORS = [
-    { label: 'Kırmızı Rota', value: '#ef4444' },
+    { label: 'Sarı Rota', value: '#eab308' },
     { label: 'Mavi Rota', value: '#3b82f6' },
-    { label: 'Yeşil Rota', value: '#10b981' },
-    { label: 'Mor Rota', value: '#8b5cf6' },
-    { label: 'Turuncu Rota', value: '#f97316' },
   ];
 
   // Helper filters
@@ -168,18 +165,19 @@ export default function VisitsAndDeficiencies({
   // Handle marking visited today
   const handleMarkVisitedToday = async (addr: SavedAddress) => {
     const todayStr = new Date().toISOString().split('T')[0];
-    let nextDateStr = '';
+    let nextDateStr = addr.nextVisitDate || '';
     
-    if (addr.visitInterval && addr.visitInterval !== 'none') {
+    // Only calculate next date if we are marking it as visited for the first time or today
+    if (!addr.visited && addr.visitInterval && addr.visitInterval !== 'none') {
       nextDateStr = calculateNextVisitDate(todayStr, addr.visitInterval);
     }
 
     const { id, ...rest } = addr;
     await onUpdateAddress(id, {
       ...rest,
-      lastVisitedDate: todayStr,
-      nextVisitDate: nextDateStr,
-      visited: true
+      lastVisitedDate: !addr.visited ? todayStr : addr.lastVisitedDate,
+      nextVisitDate: !addr.visited ? nextDateStr : addr.nextVisitDate,
+      visited: !addr.visited // toggle it
     });
   };
 
@@ -901,11 +899,15 @@ export default function VisitsAndDeficiencies({
                       <button
                         type="button"
                         onClick={() => handleMarkVisitedToday(addr)}
-                        className="flex items-center gap-1 px-2 py-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/60 text-emerald-800 font-extrabold text-[9px] rounded-lg transition-all cursor-pointer"
-                        title="Bugün ziyaret edildi olarak kaydet"
+                        className={`flex items-center gap-1 px-2 py-1.5 font-extrabold text-[9px] rounded-lg transition-all cursor-pointer border ${
+                          addr.visited 
+                            ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200/60 text-emerald-800'
+                            : 'bg-rose-50 hover:bg-rose-100 border-rose-200/60 text-rose-800'
+                        }`}
+                        title={addr.visited ? "Ziyaret edildi işaretini kaldır" : "Bugün ziyaret edildi olarak kaydet"}
                       >
-                        <CheckCircle className="h-3 w-3 text-emerald-600" />
-                        Ziyaret
+                        <CheckCircle className={`h-3 w-3 ${addr.visited ? 'text-emerald-600' : 'text-rose-600'}`} />
+                        {addr.visited ? 'Gidildi ✓' : 'Gidilmedi'}
                       </button>
 
                       <div className="relative">
