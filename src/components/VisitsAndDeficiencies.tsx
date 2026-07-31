@@ -946,7 +946,7 @@ export default function VisitsAndDeficiencies({
                               <button 
                                 onClick={() => {
                                   const { id, ...rest } = addr;
-                                  onUpdateAddress(addr.id, { ...rest, customRouteColor: undefined });
+                                  onUpdateAddress(addr.id, { ...rest, customRouteColor: '' });
                                   setOpenColorMenuId(null);
                                 }}
                                 className="text-[9px] font-bold text-rose-600 hover:bg-rose-50 py-1.5 rounded-lg transition-colors border border-rose-100"

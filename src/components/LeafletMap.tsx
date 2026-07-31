@@ -499,7 +499,8 @@ export default function LeafletMap({
       const isSelected = selectedAddressForMap && selectedAddressForMap.id === addr.id;
       const isVisited = !!addr.visited;
       const markerGlyph = isVisited ? '✓' : '★';
-      const markerColor = isSelected ? '#4f46e5' : addr.customRouteColor ? addr.customRouteColor : isVisited ? '#10b981' : getCategoryColor(cat);
+      const markerColor = addr.customRouteColor ? addr.customRouteColor : isSelected ? '#4f46e5' : isVisited ? '#10b981' : getCategoryColor(cat);
+      console.log('Rendering marker for', addr.label, 'customRouteColor:', addr.customRouteColor, 'finalColor:', markerColor);
       const savedIcon = createCustomMarkerIcon(markerColor, markerGlyph, true, addr.label);
       const marker = L.marker([addr.lat, addr.lng], { icon: savedIcon });
 
@@ -1479,7 +1480,7 @@ export default function LeafletMap({
                       key={c.value}
                       onClick={async () => {
                         const { id, ...rest } = matchedSavedAddress;
-                        await onUpdateAddress(id, { ...rest, customRouteColor: matchedSavedAddress.customRouteColor === c.value ? undefined : c.value });
+                        await onUpdateAddress(id, { ...rest, customRouteColor: matchedSavedAddress.customRouteColor === c.value ? '' : c.value });
                         // Update local state if needed or rely on parent rerender
                         setClickedCoords(null);
                         setClickedLabel('');
@@ -1493,7 +1494,7 @@ export default function LeafletMap({
                     <button 
                       onClick={async () => {
                         const { id, ...rest } = matchedSavedAddress;
-                        await onUpdateAddress(id, { ...rest, customRouteColor: undefined });
+                        await onUpdateAddress(id, { ...rest, customRouteColor: '' });
                         setClickedCoords(null);
                         setClickedLabel('');
                       }}
