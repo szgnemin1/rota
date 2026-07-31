@@ -731,6 +731,7 @@ export default function App() {
             <VisitsAndDeficiencies
               savedAddresses={savedAddresses}
               onUpdateAddress={handleUpdateAddress}
+              onClearAllVisited={async () => handleUpdateAddressesBulkVisited(null, false)}
               routeStops={routeStops}
               setRouteStops={setRouteStops}
               onSelectOnMap={handleSelectOnMap}

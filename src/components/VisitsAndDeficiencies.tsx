@@ -10,6 +10,7 @@ import {
 interface VisitsAndDeficienciesProps {
   savedAddresses: SavedAddress[];
   onUpdateAddress: (id: string, address: Omit<SavedAddress, 'id'>) => Promise<void>;
+  onClearAllVisited?: () => Promise<void>;
   routeStops: RouteStop[];
   setRouteStops: React.Dispatch<React.SetStateAction<RouteStop[]>>;
   onSelectOnMap: (address: SavedAddress) => void;
@@ -20,6 +21,7 @@ interface VisitsAndDeficienciesProps {
 export default function VisitsAndDeficiencies({
   savedAddresses,
   onUpdateAddress,
+  onClearAllVisited,
   routeStops,
   setRouteStops,
   onSelectOnMap,
@@ -104,6 +106,16 @@ export default function VisitsAndDeficiencies({
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     return diffDays;
   };
+
+  const [openColorMenuId, setOpenColorMenuId] = useState<string | null>(null);
+  
+  const ROUTE_COLORS = [
+    { label: 'Kırmızı Rota', value: '#ef4444' },
+    { label: 'Mavi Rota', value: '#3b82f6' },
+    { label: 'Yeşil Rota', value: '#10b981' },
+    { label: 'Mor Rota', value: '#8b5cf6' },
+    { label: 'Turuncu Rota', value: '#f97316' },
+  ];
 
   // Helper filters
   const isDueOrUpcoming = (addr: SavedAddress) => {
@@ -515,14 +527,30 @@ export default function VisitsAndDeficiencies({
             <ClipboardList className="h-4 w-4 text-indigo-600 shrink-0" />
             <span className="text-xs font-black text-slate-800 tracking-tight">Ziyaret &amp; Eksiklik Takibi</span>
           </div>
-          <button
-            onClick={() => setShowListReportModal(true)}
-            className="flex items-center gap-1 py-1 px-2.5 rounded-lg text-[10px] font-black bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/50 transition-colors cursor-pointer shadow-3xs"
-            title="Tüm firmaların alfabetik listesi ve raporu"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            <span>Firma Listesi Al</span>
-          </button>
+          <div className="flex items-center gap-2">
+            {onClearAllVisited && (
+              <button
+                onClick={async () => {
+                  if (window.confirm("Tüm 'Gidildi ✓' işaretleri temizlenecek. Devam etmek istiyor musunuz? (Son gidilme tarihleri silinmez)")) {
+                    await onClearAllVisited();
+                  }
+                }}
+                className="flex items-center gap-1 py-1 px-2.5 rounded-lg text-[10px] font-black bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200/50 transition-colors cursor-pointer shadow-3xs"
+                title="Tüm Gidildi İşaretlerini Temizle"
+              >
+                <CheckCircle className="h-3.5 w-3.5" />
+                <span>İşaretleri Temizle</span>
+              </button>
+            )}
+            <button
+              onClick={() => setShowListReportModal(true)}
+              className="flex items-center gap-1 py-1 px-2.5 rounded-lg text-[10px] font-black bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/50 transition-colors cursor-pointer shadow-3xs"
+              title="Tüm firmaların alfabetik listesi ve raporu"
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span>Firma Listesi Al</span>
+            </button>
+          </div>
         </div>
 
         {/* Horizontal Compact Stats Pill List */}
@@ -880,22 +908,55 @@ export default function VisitsAndDeficiencies({
                         Ziyaret
                       </button>
 
-                      <button
-                        type="button"
-                        disabled={isOriginOrDestInRoute}
-                        onClick={() => handleToggleRouteStop(addr)}
-                        className={`flex items-center gap-1 px-2 py-1.5 text-[9px] font-extrabold rounded-lg transition-all cursor-pointer ${
-                          isOriginOrDestInRoute
-                            ? 'bg-slate-50 text-slate-400 cursor-not-allowed border border-slate-200'
-                            : inRoute
-                            ? 'bg-indigo-600 text-white hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-indigo-600'
-                            : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-200'
-                        }`}
-                        title={inRoute ? "Rotadan çıkarmak için tıklayın" : "Sıradaki durak olarak ekle"}
-                      >
-                        <Route className={`h-3 w-3 ${isOriginOrDestInRoute ? 'text-slate-300' : inRoute ? 'text-current' : 'text-indigo-600'}`} />
-                        {isOriginOrDestInRoute ? 'Süreçte' : inRoute ? 'Rotaya Eklendi ✓' : 'Rotaya Ekle'}
-                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setOpenColorMenuId(openColorMenuId === addr.id ? null : addr.id)}
+                          className={`flex items-center gap-1 px-2 py-1.5 text-[9px] font-extrabold rounded-lg transition-all cursor-pointer ${
+                            addr.customRouteColor
+                              ? 'text-white shadow-md'
+                              : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100 border border-indigo-200'
+                          }`}
+                          style={addr.customRouteColor ? { backgroundColor: addr.customRouteColor, borderColor: addr.customRouteColor } : {}}
+                          title="Özel Rota Rengi Seç"
+                        >
+                          <Route className={`h-3 w-3 ${addr.customRouteColor ? 'text-white' : 'text-indigo-600'}`} />
+                          {addr.customRouteColor ? 'Özel Rota ✓' : 'Özel Rota'}
+                        </button>
+
+                        {openColorMenuId === addr.id && (
+                          <div className="absolute z-[100] bottom-full mb-1 right-0 bg-white p-2 rounded-xl shadow-xl border border-slate-200 flex flex-col gap-2 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+                            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Özel Rota Rengi</span>
+                            <div className="flex gap-1.5 justify-between">
+                              {ROUTE_COLORS.map(c => (
+                                <button
+                                  key={c.value}
+                                  onClick={() => {
+                                    const { id, ...rest } = addr;
+                                    onUpdateAddress(addr.id, { ...rest, customRouteColor: c.value });
+                                    setOpenColorMenuId(null);
+                                  }}
+                                  className={`w-5 h-5 rounded-full shadow-sm hover:scale-110 transition-transform ${addr.customRouteColor === c.value ? 'ring-2 ring-offset-1 ring-slate-400' : ''}`}
+                                  style={{ backgroundColor: c.value }}
+                                  title={c.label}
+                                />
+                              ))}
+                            </div>
+                            {addr.customRouteColor && (
+                              <button 
+                                onClick={() => {
+                                  const { id, ...rest } = addr;
+                                  onUpdateAddress(addr.id, { ...rest, customRouteColor: undefined });
+                                  setOpenColorMenuId(null);
+                                }}
+                                className="text-[9px] font-bold text-rose-600 hover:bg-rose-50 py-1.5 rounded-lg transition-colors border border-rose-100"
+                              >
+                                Rotadan Çıkar
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                       <button
                         type="button"

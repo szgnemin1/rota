@@ -499,7 +499,7 @@ export default function LeafletMap({
       const isSelected = selectedAddressForMap && selectedAddressForMap.id === addr.id;
       const isVisited = !!addr.visited;
       const markerGlyph = isVisited ? '✓' : '★';
-      const markerColor = isSelected ? '#4f46e5' : isVisited ? '#10b981' : getCategoryColor(cat);
+      const markerColor = isSelected ? '#4f46e5' : addr.customRouteColor ? addr.customRouteColor : isVisited ? '#10b981' : getCategoryColor(cat);
       const savedIcon = createCustomMarkerIcon(markerColor, markerGlyph, true, addr.label);
       const marker = L.marker([addr.lat, addr.lng], { icon: savedIcon });
 
@@ -1445,7 +1445,7 @@ export default function LeafletMap({
                     className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-rose-600 bg-rose-50 text-rose-700 font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg hover:bg-rose-100 disabled:opacity-50"
                   >
                     <Bookmark className="h-4 w-4 shrink-0 fill-rose-700" />
-                    Rotaya Eklendi ✓ (Rotadan Çıkar)
+                    Planlayıcıya Eklendi ✓ (Çıkar)
                   </button>
                 );
               }
@@ -1458,10 +1458,53 @@ export default function LeafletMap({
                   className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-indigo-600 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer hover:shadow-lg disabled:opacity-50"
                 >
                   <Navigation className="h-4 w-4 shrink-0 rotate-45 fill-white" />
-                  Rotaya Ekle (Sırayla)
+                  Rota Planlayıcıya Ekle
                 </button>
               );
             })()}
+
+            {/* Custom Route Color Picker for Saved Addresses */}
+            {matchedSavedAddress && onUpdateAddress && (
+              <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3">
+                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Özel Rota Grubuna Ata</span>
+                <div className="flex gap-2 items-center justify-between">
+                  {[
+                    { label: 'Kırmızı Rota', value: '#ef4444' },
+                    { label: 'Mavi Rota', value: '#3b82f6' },
+                    { label: 'Yeşil Rota', value: '#10b981' },
+                    { label: 'Mor Rota', value: '#8b5cf6' },
+                    { label: 'Turuncu Rota', value: '#f97316' }
+                  ].map(c => (
+                    <button
+                      key={c.value}
+                      onClick={async () => {
+                        const { id, ...rest } = matchedSavedAddress;
+                        await onUpdateAddress(id, { ...rest, customRouteColor: matchedSavedAddress.customRouteColor === c.value ? undefined : c.value });
+                        // Update local state if needed or rely on parent rerender
+                        setClickedCoords(null);
+                        setClickedLabel('');
+                      }}
+                      className={`w-6 h-6 rounded-full shadow-sm hover:scale-110 transition-transform ${matchedSavedAddress.customRouteColor === c.value ? 'ring-2 ring-offset-2 ring-slate-800' : ''}`}
+                      style={{ backgroundColor: c.value }}
+                      title={c.label}
+                    />
+                  ))}
+                  {matchedSavedAddress.customRouteColor && (
+                    <button 
+                      onClick={async () => {
+                        const { id, ...rest } = matchedSavedAddress;
+                        await onUpdateAddress(id, { ...rest, customRouteColor: undefined });
+                        setClickedCoords(null);
+                        setClickedLabel('');
+                      }}
+                      className="text-[10px] font-bold text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-lg"
+                    >
+                      Kaldır
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Location Actions Menu Grid */}
             <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3">

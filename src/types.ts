@@ -7,6 +7,7 @@ export interface SavedAddress {
   icon?: string; // Icon identifier
   category?: string; // Grouping category, e.g., "Depolar", "Müşteriler"
   visited?: boolean; // Visit status: true for visited, false or undefined for unvisited
+  customRouteColor?: string; // User-selected color for custom routing/tagging
   phone?: string; // Telefon numarası
   contactPerson?: string; // Yetkili kişi ismi
   deficiencies?: string; // Deficiencies/missing items noted
