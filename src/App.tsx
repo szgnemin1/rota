@@ -469,7 +469,8 @@ export default function App() {
   };
 
   const handleSelectOnMap = (address: SavedAddress) => {
-    setSelectedAddressForMap(address);
+    // Create a new reference so the map centers even if clicking the same address again
+    setSelectedAddressForMap({ ...address });
     // Switch mobile view to Map
     setMobileTab('map');
   };

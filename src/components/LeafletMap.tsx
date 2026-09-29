@@ -405,12 +405,35 @@ export default function LeafletMap({
       zoomControl: false // Move zoom control to bottom-right or custom location
     });
 
-    // Add CartoDB Voyager tiles (Modern, neutral, light-mode, 100% free)
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-      subdomains: 'abcd',
-      maxZoom: 20
+    // OpenStreetMap Standard Tiles (100% free, reliable, no API key required)
+    const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+      subdomains: 'abc',
+      maxZoom: 20,
+      maxNativeZoom: 19
     }).addTo(map);
+
+    // Humanitarian OpenStreetMap Tiles (Clean, high contrast street rendering)
+    const hotLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors, <a href="https://www.hotosm.org/" target="_blank" rel="noreferrer">HOT</a>',
+      subdomains: 'abc',
+      maxZoom: 20,
+      maxNativeZoom: 19
+    });
+
+    // OpenTopoMap (Terrain / Topographic map)
+    const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors, <a href="https://opentopomap.org" target="_blank" rel="noreferrer">OpenTopoMap</a>',
+      subdomains: 'abc',
+      maxZoom: 17
+    });
+
+    // Layer switch control (allows switching map styles easily)
+    L.control.layers({
+      'Standart Harita (OSM)': osmLayer,
+      'Ayrıntılı Sokak (HOT)': hotLayer,
+      'Arazi / Topo': topoLayer
+    }, undefined, { position: 'bottomright' }).addTo(map);
 
     // Custom Zoom control at bottom right
     L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -499,7 +522,7 @@ export default function LeafletMap({
       const isSelected = selectedAddressForMap && selectedAddressForMap.id === addr.id;
       const isVisited = !!addr.visited;
       const markerGlyph = isVisited ? '✓' : '★';
-      const markerColor = isVisited ? '#10b981' : addr.customRouteColor ? addr.customRouteColor : isSelected ? '#4f46e5' : '#ef4444';
+      const markerColor = isVisited ? '#10b981' : addr.customRouteColor ? addr.customRouteColor : '#ef4444';
       const savedIcon = createCustomMarkerIcon(markerColor, markerGlyph, true, addr.label);
       const marker = L.marker([addr.lat, addr.lng], { icon: savedIcon });
 
@@ -533,7 +556,6 @@ export default function LeafletMap({
       markersGroup.addLayer(marker);
 
       if (isSelected) {
-        map.setView([addr.lat, addr.lng], 14, { animate: true });
         // Automatically open the popup for selected address
         setTimeout(() => {
           marker.openPopup();
@@ -661,12 +683,15 @@ export default function LeafletMap({
     } else {
       setRouteCoordinates([]);
       onSummaryCalculated(null);
-      // Zoom to fit existing stops or markers if available
-      if (validStops.length === 1) {
-        map.setView([validStops[0].lat, validStops[0].lng], 13, { animate: true });
-      }
     }
   }, [routeStops, travelMode, selectedAddressForMap, savedAddresses, excludedCategories]);
+
+  // explicitly center map only when a user selects an address from the list
+  useEffect(() => {
+    if (selectedAddressForMap && mapInstanceRef.current) {
+      mapInstanceRef.current.setView([selectedAddressForMap.lat, selectedAddressForMap.lng], 14, { animate: true });
+    }
+  }, [selectedAddressForMap]);
 
   // Reset navigation when route stops change
   useEffect(() => {
