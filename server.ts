@@ -1,4 +1,5 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -377,23 +378,48 @@ async function startServer() {
       let lng = 0;
       let found = false;
 
+      const isYandex = finalUrl.toLowerCase().includes('yandex.');
+      
       const atMatch = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
       if (atMatch) {
         lat = parseFloat(atMatch[1]);
         lng = parseFloat(atMatch[2]);
         found = true;
       } else {
-        const qMatch = finalUrl.match(/[?&](q|query|ll)=(-?\d+\.\d+)(,%2C|%2C|,)(-?\d+\.\d+)/i);
-        if (qMatch) {
-          lat = parseFloat(qMatch[2]);
-          lng = parseFloat(qMatch[4]);
+        // Yandex rtext parameter: rtext=lat,lng or rtext=lat%2Clng
+        const yandexRtextMatch = finalUrl.match(/[?&]rtext=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
+        if (yandexRtextMatch) {
+          lat = parseFloat(yandexRtextMatch[1]);
+          lng = parseFloat(yandexRtextMatch[2]);
           found = true;
         } else {
-          const searchMatch = finalUrl.match(/\/search\/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-          if (searchMatch) {
-            lat = parseFloat(searchMatch[1]);
-            lng = parseFloat(searchMatch[2]);
+          // Yandex whatshere parameter: whatshere[point]=lng,lat
+          const yandexPointMatch = finalUrl.match(/whatshere(?:%5B|\[)point(?:%5D|\])=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
+          if (yandexPointMatch) {
+            // In Yandex point, lon is first, lat is second
+            lng = parseFloat(yandexPointMatch[1]);
+            lat = parseFloat(yandexPointMatch[2]);
             found = true;
+          } else {
+            const qMatch = finalUrl.match(/[?&](q|query|ll)=(-?\d+\.\d+)(,%2C|%2C|,)(-?\d+\.\d+)/i);
+            if (qMatch) {
+              if (isYandex && qMatch[1].toLowerCase() === 'll') {
+                // In Yandex ll, lon is first, lat is second
+                lng = parseFloat(qMatch[2]);
+                lat = parseFloat(qMatch[4]);
+              } else {
+                lat = parseFloat(qMatch[2]);
+                lng = parseFloat(qMatch[4]);
+              }
+              found = true;
+            } else {
+              const searchMatch = finalUrl.match(/\/search\/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+              if (searchMatch) {
+                lat = parseFloat(searchMatch[1]);
+                lng = parseFloat(searchMatch[2]);
+                found = true;
+              }
+            }
           }
         }
       }
@@ -406,6 +432,10 @@ async function startServer() {
         title = titleMatch[1]
           .replace("- Google Maps", "")
           .replace("- Google Haritalar", "")
+          .replace("— Yandex Haritalar", "")
+          .replace("- Yandex Haritalar", "")
+          .replace("— Yandex Maps", "")
+          .replace("- Yandex Maps", "")
           .trim();
       }
 
@@ -494,10 +524,16 @@ async function startServer() {
   });
 
 
+  const httpServer = http.createServer(app);
+
   // --- CLIENT SERVING ---
   if (process.env.NODE_ENV !== "production") {
+    const isHmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: isHmrDisabled ? false : { server: httpServer }
+      },
       appType: "spa"
     });
     app.use(vite.middlewares);
@@ -509,7 +545,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

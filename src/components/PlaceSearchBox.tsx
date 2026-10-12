@@ -159,9 +159,15 @@ export default function PlaceSearchBox({
       return;
     }
 
-    // Handle Google Maps short / long link resolution via custom backend API (bypasses CORS)
-    const isGoogleMapsLink = query.toLowerCase().includes('goo.gl') || query.toLowerCase().includes('google.com/maps') || query.toLowerCase().includes('maps.google');
-    if (isGoogleMapsLink) {
+    // Handle Google Maps & Yandex Maps short / long link resolution via custom backend API
+    const isExternalMapLink = query.toLowerCase().includes('goo.gl') || 
+      query.toLowerCase().includes('google.com/maps') || 
+      query.toLowerCase().includes('maps.google') ||
+      query.toLowerCase().includes('yandex.com/maps') ||
+      query.toLowerCase().includes('yandex.ru/maps') ||
+      query.toLowerCase().includes('yandex.com.tr/maps') ||
+      query.toLowerCase().includes('yandex.');
+    if (isExternalMapLink) {
       try {
         const url = `/api/resolve-maps-url?url=${encodeURIComponent(query)}`;
         const token = localStorage.getItem('rotaplan_auth_token') || '';
@@ -174,10 +180,11 @@ export default function PlaceSearchBox({
         const item = await response.json();
 
         if (item && item.success) {
+          const isYandexLink = query.toLowerCase().includes('yandex');
           const result: UnifiedPrediction = {
-            id: `coords-google-resolved-${item.lat}-${item.lng}`,
+            id: `coords-resolved-${item.lat}-${item.lng}`,
             source: 'osm',
-            mainText: `📍 ${item.label || 'Google Harita Konumu'}`,
+            mainText: `📍 ${item.label || (isYandexLink ? 'Yandex Harita Konumu' : 'Google Harita Konumu')}`,
             secondaryText: item.address,
             address: item.address,
             lat: item.lat,
@@ -189,12 +196,12 @@ export default function PlaceSearchBox({
           throw new Error('Unsuccessful response');
         }
       } catch (err) {
-        console.warn("Google Maps URL resolution failed:", err);
+        console.warn("External Maps URL resolution failed:", err);
         const errorResult: UnifiedPrediction = {
-          id: 'error-google-resolve',
+          id: 'error-map-resolve',
           source: 'osm',
-          mainText: '❌ Google Harita Linki Çözümlenemedi',
-          secondaryText: 'Bağlantı çözümlenemedi. Lütfen doğrudan arama kutusuna yazarak arama yapın.',
+          mainText: '❌ Harita Linki Çözümlenemedi',
+          secondaryText: 'Bağlantı çözümlenemedi. Lütfen doğrudan arama kutusuna isim ya da adres yazın.',
           address: 'Hata',
           lat: 40.1826,
           lng: 29.0660

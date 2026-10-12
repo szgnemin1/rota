@@ -106,6 +106,14 @@ export default function SavedAddresses({
   } | null>(null);
   
   const [successMessage, setSuccessMessage] = useState('');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(prev => prev === msg ? null : prev);
+    }, 4000);
+  };
   
   // States for multi route selection
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
@@ -182,18 +190,18 @@ export default function SavedAddresses({
       return;
     }
 
-    // 1. Check max custom groups (total 10)
+    // 1. Check max custom groups (total 25)
     const customCategories = existingCategories.filter(c => c !== 'Genel');
-    if (customCategories.length >= 10 && !existingCategories.includes(targetGroupName)) {
-      setGroupModalError("En fazla 10 farklı grup oluşturabilirsiniz! Lütfen yeni bir grup ismi girmek yerine mevcut grupları kullanın.");
+    if (customCategories.length >= 25 && !existingCategories.includes(targetGroupName)) {
+      setGroupModalError("En fazla 25 farklı grup oluşturabilirsiniz! Lütfen yeni bir grup ismi girmek yerine mevcut grupları kullanın.");
       return;
     }
 
-    // 2. Check max items in the target group (total 10)
+    // 2. Check max items in the target group (total 50)
     const alreadyInGroup = savedAddresses.filter(a => (a.category || 'Genel') === targetGroupName && !selectedExistingIds.includes(a.id));
     const totalExpectedInGroup = alreadyInGroup.length + selectedExistingIds.length + newGroupAddresses.length;
-    if (totalExpectedInGroup > 10) {
-      setGroupModalError(`Bir grupta en fazla 10 adres bulunabilir! Bu grupta toplam ${totalExpectedInGroup} adet adres bulunmaya çalışılıyor. Lütfen sınırı aşmayın.`);
+    if (totalExpectedInGroup > 50) {
+      setGroupModalError(`Bir grupta en fazla 50 adres bulunabilir! Bu grupta toplam ${totalExpectedInGroup} adet adres bulunmaya çalışılıyor. Lütfen sınırı aşmayın.`);
       return;
     }
 
@@ -818,8 +826,8 @@ export default function SavedAddresses({
   };
 
   const handleAddAsWaypoint = (addr: SavedAddress) => {
-    if (routeStops.length >= 10) {
-      alert("Google Haritalar en fazla 10 durağı (başlangıç, varış ve 8 ara durak) desteklemektedir.");
+    if (routeStops.length >= 100) {
+      showToast("Maksimum 100 durak eklenebilir.");
       return;
     }
     const newId = `waypoint-${Date.now()}`;
@@ -844,8 +852,8 @@ export default function SavedAddresses({
       if (selectedIds.includes(addr.id)) {
         setSelectedIds(selectedIds.filter(id => id !== addr.id));
       } else {
-        if (selectedIds.length >= 10) {
-          alert("Google Haritalar en fazla 10 durağı (başlangıç, varış ve 8 ara durak) desteklemektedir.");
+        if (selectedIds.length >= 100) {
+          showToast("Maksimum 100 durak seçilebilir.");
           return;
         }
         setSelectedIds([...selectedIds, addr.id]);
@@ -1196,8 +1204,11 @@ export default function SavedAddresses({
             {isMultiSelectMode && (
               <div className="bg-white border border-indigo-100 rounded-lg p-2.5 space-y-2.5 transition-all">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600 font-medium">
-                    Seçilen Duraklar: <strong className="text-indigo-600">{selectedIds.length} / 10</strong>
+                  <span className="text-slate-600 font-medium flex items-center gap-2">
+                    <span>Seçilen Duraklar: <strong className="text-indigo-600 font-black">{selectedIds.length}</strong></span>
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                      Yandex ile Sınırsız Durak
+                    </span>
                   </span>
                   {selectedIds.length > 0 && (
                     <button
@@ -1616,13 +1627,13 @@ export default function SavedAddresses({
                                               // Check custom groups limit
                                               const currentCustomCats = existingCategories.filter(c => c !== 'Genel');
                                               if (currentCustomCats.length >= 10 && !existingCategories.includes(trimmed)) {
-                                                alert("En fazla 10 farklı grup oluşturabilirsiniz!");
+                                                showToast("En fazla 10 farklı grup oluşturabilirsiniz!");
                                                 return;
                                               }
                                               // Check target group size limit
                                               const itemsInTarget = savedAddresses.filter(a => (a.category || 'Genel') === trimmed).length;
                                               if (itemsInTarget >= 10) {
-                                                alert(`"${trimmed}" grubu zaten maksimum 10 adres sınırına ulaştı!`);
+                                                showToast(`"${trimmed}" grubu zaten maksimum 10 adres sınırına ulaştı!`);
                                                 return;
                                               }
                                               await onUpdateAddress(addr.id, {
@@ -1634,7 +1645,7 @@ export default function SavedAddresses({
                                             // Check target group size limit
                                             const itemsInTarget = savedAddresses.filter(a => (a.category || 'Genel') === newCat).length;
                                             if (newCat !== 'Genel' && itemsInTarget >= 10 && addr.category !== newCat) {
-                                              alert(`"${newCat}" grubu zaten maksimum 10 adres sınırına ulaştı!`);
+                                              showToast(`"${newCat}" grubu zaten maksimum 10 adres sınırına ulaştı!`);
                                               return;
                                             }
                                             await onUpdateAddress(addr.id, {
@@ -1747,13 +1758,13 @@ export default function SavedAddresses({
                                   <button
                                     id={`add-waypoint-btn-${addr.id}`}
                                     type="button"
-                                    disabled={routeStops.length >= 10}
+                                    disabled={routeStops.length >= 100}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleAddAsWaypoint(addr);
                                     }}
                                     className={`flex items-center gap-1 px-2 py-1 rounded font-bold text-[10px] border transition-all ${
-                                      routeStops.length >= 10
+                                      routeStops.length >= 100
                                         ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
                                         : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 cursor-pointer'
                                     }`}
@@ -2443,7 +2454,7 @@ export default function SavedAddresses({
                           type="button"
                           onClick={() => {
                             if (!currentSearchLabel.trim()) {
-                              alert("Lütfen bir adres etiketi girin.");
+                              showToast("Lütfen bir adres etiketi girin.");
                               return;
                             }
                             setNewGroupAddresses(prev => [
@@ -2647,6 +2658,21 @@ export default function SavedAddresses({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-slate-900/95 backdrop-blur-md text-white px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2.5 text-xs font-semibold animate-in fade-in slide-in-from-bottom-2 border border-slate-700/80 max-w-[90vw]">
+          <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+          <span>{toastMessage}</span>
+          <button 
+            type="button" 
+            onClick={() => setToastMessage(null)} 
+            className="ml-2 text-slate-400 hover:text-white p-0.5 rounded transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>

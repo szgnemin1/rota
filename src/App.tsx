@@ -83,11 +83,13 @@ export default function App() {
 
   // Triggering live navigation mode across tabs
   const [navigationTriggerCount, setNavigationTriggerCount] = useState(0);
+  const [navModePreference, setNavModePreference] = useState<'GPS' | 'SIMULATION'>('GPS');
 
   // Group creation modal state
   const [showGroupCreationModal, setShowGroupCreationModal] = useState(false);
 
-  const handleStartNavigation = () => {
+  const handleStartNavigation = (mode: 'GPS' | 'SIMULATION' = 'GPS') => {
+    setNavModePreference(mode);
     setNavigationTriggerCount((prev) => prev + 1);
     setMobileTab('map');
   };
@@ -776,6 +778,7 @@ export default function App() {
           setMobileTab={setMobileTab}
           mobileTab={mobileTab}
           navigationTriggerCount={navigationTriggerCount}
+          initialNavMode={navModePreference}
           onTriggerGroupCreation={() => {
             setActiveTab('saved');
             setMobileTab('saved');

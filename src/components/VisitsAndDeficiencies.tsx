@@ -366,12 +366,6 @@ export default function VisitsAndDeficiencies({
       (a.label || '').localeCompare(b.label || '', 'tr')
     );
 
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) {
-      alert("Yazdırma penceresi engellendi. Lütfen izin verin.");
-      return;
-    }
-
     let rowsHtml = '';
     sorted.forEach((addr, idx) => {
       const label = addr.label || '';
@@ -505,8 +499,35 @@ export default function VisitsAndDeficiencies({
       '</body>' +
       '</html>';
 
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(htmlContent);
+      doc.close();
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (e) {
+          console.error("Print error:", e);
+        }
+        setTimeout(() => {
+          if (document.body.contains(iframe)) {
+            document.body.removeChild(iframe);
+          }
+        }, 3000);
+      }, 500);
+    }
   };
 
   // Count helper stats

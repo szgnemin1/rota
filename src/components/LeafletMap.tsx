@@ -4,7 +4,7 @@ import { RouteStop, SavedAddress, TravelMode, RouteSummary } from '../types';
 import { 
   Compass, Loader2, MapPin, Navigation, Plus, Bookmark, HelpCircle,
   ArrowUp, CornerUpLeft, CornerUpRight, RotateCcw, Volume2, VolumeX,
-  Play, Pause, ChevronRight, ChevronLeft, X, Flag, Eye
+  Play, Pause, ChevronRight, ChevronLeft, X, Flag, Eye, Check, Gauge, Target
 } from 'lucide-react';
 
 interface LeafletMapProps {
@@ -22,6 +22,7 @@ interface LeafletMapProps {
   setMobileTab: (tab: 'route' | 'saved' | 'map') => void;
   mobileTab: 'route' | 'saved' | 'map';
   navigationTriggerCount?: number;
+  initialNavMode?: 'GPS' | 'SIMULATION';
   onTriggerGroupCreation?: () => void;
 }
 
@@ -40,6 +41,7 @@ export default function LeafletMap({
   setMobileTab,
   mobileTab,
   navigationTriggerCount,
+  initialNavMode,
   onTriggerGroupCreation
 }: LeafletMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -67,14 +69,34 @@ export default function LeafletMap({
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const navigationMarkerRef = useRef<L.Marker | null>(null);
 
+  // Live Vehicle Heading, Speed & Auto-follow Camera Tracking
+  const [currentHeading, setCurrentHeading] = useState<number>(0);
+  const [currentSpeed, setCurrentSpeed] = useState<number>(0);
+  const [isCameraLocked, setIsCameraLocked] = useState<boolean>(true);
+  const [navToast, setNavToast] = useState<{ message: string; type?: 'info' | 'success' | 'warning' } | null>(null);
+  const [arrivedStop, setArrivedStop] = useState<RouteStop | null>(null);
+  const [currentStopIndex, setCurrentStopIndex] = useState<number>(1);
+  const [confirmClearVisited, setConfirmClearVisited] = useState<boolean>(false);
+  const lastRerouteTimeRef = useRef<number>(0);
+  const prevCoordsRef = useRef<[number, number] | null>(null);
+  const prevTimeRef = useRef<number>(0);
+  const announcedStopsRef = useRef<Set<string>>(new Set());
+
+  const showNavToast = (message: string, type: 'info' | 'success' | 'warning' = 'info') => {
+    setNavToast({ message, type });
+    setTimeout(() => setNavToast(null), 3500);
+  };
+
   // Live GPS Tracking & Navigation Mode state
-  const [navMode, setNavMode] = useState<'SIMULATION' | 'GPS'>('SIMULATION');
+  const [navMode, setNavMode] = useState<'SIMULATION' | 'GPS'>('GPS');
   const [isGpsLoading, setIsGpsLoading] = useState(false);
   const watchIdRef = useRef<number | null>(null);
 
   // Group selection & filtering states on map
   const [excludedCategories, setExcludedCategories] = useState<string[]>([]);
   const [showCategoryPanel, setShowCategoryPanel] = useState(false);
+
+  const validStops = routeStops.filter(s => s.lat !== 0 && s.lng !== 0);
 
   const availableCategories = Array.from(new Set(savedAddresses.map(addr => addr.category || 'Genel')));
 
@@ -98,7 +120,7 @@ export default function LeafletMap({
   const handleSelectGroupForRoute = (catName: string) => {
     const groupAddresses = savedAddresses.filter(addr => (addr.category || 'Genel') === catName && !addr.visited);
     if (groupAddresses.length === 0) {
-      alert(`"${catName}" grubundaki tüm adresler zaten 'Gidildi' olarak işaretlenmiş!`);
+      showNavToast(`"${catName}" grubundaki tüm adresler zaten 'Gidildi' olarak işaretlenmiş!`, "warning");
       return;
     }
 
@@ -241,8 +263,120 @@ export default function LeafletMap({
     return <ArrowUp className="h-7 w-7 text-indigo-400 shrink-0 animate-pulse" />;
   };
 
+  // Geo Helpers: Bearing, Distance & ETA
+  const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const toDeg = (rad: number) => (rad * 180) / Math.PI;
+    const φ1 = toRad(lat1);
+    const φ2 = toRad(lat2);
+    const Δλ = toRad(lon2 - lon1);
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    const θ = Math.atan2(y, x);
+    return (toDeg(θ) + 360) % 360;
+  };
+
+  const getDistanceMeters = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371000;
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const calculateEta = (durationStr?: string): string => {
+    if (!durationStr) return '--:--';
+    const match = durationStr.match(/(\d+)\s*dk/);
+    const minutes = match ? parseInt(match[1], 10) : 0;
+    const now = new Date();
+    now.setMinutes(now.getMinutes() + minutes);
+    const hours = String(now.getHours()).padStart(2, '0');
+    const mins = String(now.getMinutes()).padStart(2, '0');
+    return `${hours}:${mins}`;
+  };
+
+  // Autonomous re-routing when user veers off course (> 80 meters)
+  const triggerReroute = (currentLocation: [number, number]) => {
+    lastRerouteTimeRef.current = Date.now();
+    speakInstruction("Rotadan çıkıldı. Yeni rota hesaplanıyor.");
+    showNavToast("Rotadan çıkıldı, yeni rota hesaplanıyor...", "warning");
+
+    const remainingStops = validStops.slice(Math.max(1, currentStopIndex));
+    if (remainingStops.length === 0) return;
+
+    const rerouteStopsList = [
+      {
+        id: 'gps-live-origin',
+        label: 'Mevcut Konum',
+        address: 'Mevcut Konum',
+        lat: currentLocation[0],
+        lng: currentLocation[1]
+      },
+      ...remainingStops
+    ];
+
+    let osrmProfile = 'driving';
+    if (travelMode === 'WALKING') osrmProfile = 'foot';
+    else if (travelMode === 'BICYCLING') osrmProfile = 'bike';
+
+    const coordinateString = rerouteStopsList.map(s => `${s.lng},${s.lat}`).join(';');
+    const url = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordinateString}?overview=full&geometries=geojson&steps=true&languages=tr`;
+
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error('OSRM rerouting failed');
+        return res.json();
+      })
+      .then(data => {
+        if (data && data.routes && data.routes[0]) {
+          const route = data.routes[0];
+          const coordinates = route.geometry.coordinates;
+          const pathLatLngs: [number, number][] = coordinates.map((coord: any) => [coord[1], coord[0]]);
+          setRouteCoordinates(pathLatLngs);
+          if (routePolylineRef.current) {
+            routePolylineRef.current.setLatLngs(pathLatLngs);
+          }
+
+          const distanceM = route.distance || 0;
+          const durationS = route.duration || 0;
+          const totalDistance = distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
+          const totalDuration = durationS >= 60 ? `${Math.round(durationS / 60)} dk` : `${Math.round(durationS)} sn`;
+
+          const steps = route.legs?.flatMap((leg: any) => leg.steps || []).map((step: any) => {
+            const dist = step.distance || 0;
+            const dur = step.duration || 0;
+            return {
+              instruction: step.maneuver?.instruction || "Düz ilerleyin",
+              distance: dist >= 1000 ? `${(dist / 1000).toFixed(1)} km` : `${Math.round(dist)} m`,
+              duration: dur >= 60 ? `${Math.round(dur / 60)} dk` : `${Math.round(dur)} sn`
+            };
+          }) || [];
+
+          onSummaryCalculated({
+            distance: totalDistance,
+            duration: totalDuration,
+            steps
+          });
+
+          setCurrentCoordsIdx(0);
+          setCurrentStepIdx(0);
+          if (steps[0]) {
+            speakInstruction("Yeni rota hazır. " + steps[0].instruction);
+          }
+          showNavToast("Yeni rota oluşturuldu ✓", "success");
+        }
+      })
+      .catch(err => {
+        console.warn("Reroute fetch failed:", err);
+      });
+  };
+
   // Setup core Navigation Trigger actions
-  const startNavigation = (mode: 'SIMULATION' | 'GPS' = 'SIMULATION') => {
+  const startNavigation = (mode: 'SIMULATION' | 'GPS' = 'GPS') => {
     if (routeCoordinates.length === 0) return;
     
     // Clear existing watch if active
@@ -253,13 +387,19 @@ export default function LeafletMap({
 
     setIsNavigating(true);
     setNavMode(mode);
+    setIsCameraLocked(true);
+    setArrivedStop(null);
+    setCurrentStopIndex(1);
+    prevCoordsRef.current = null;
+    prevTimeRef.current = Date.now();
+    announcedStopsRef.current.clear();
 
     if (mode === 'GPS') {
       setIsSimulating(false);
       setIsGpsLoading(true);
 
       if (!navigator.geolocation) {
-        alert("Cihazınız GPS konum takibini desteklemiyor. Simülasyon moduna geçiliyor.");
+        showNavToast("Cihazınız GPS konum takibini desteklemiyor. Simülasyon moduna geçiliyor.", "warning");
         setNavMode('SIMULATION');
         setIsSimulating(true);
         setIsGpsLoading(false);
@@ -269,24 +409,60 @@ export default function LeafletMap({
 
       const successCallback = (position: GeolocationPosition) => {
         setIsGpsLoading(false);
-        const { latitude, longitude } = position.coords;
+        const { latitude, longitude, heading, speed } = position.coords;
         const userLoc: [number, number] = [latitude, longitude];
         setSimulatedCoords(userLoc);
 
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.setView(userLoc, 18, { animate: true });
+        // Heading / Bearing calculation
+        if (heading !== null && !isNaN(heading) && heading >= 0) {
+          setCurrentHeading(heading);
+        } else if (prevCoordsRef.current) {
+          const distMoved = getDistanceMeters(prevCoordsRef.current[0], prevCoordsRef.current[1], latitude, longitude);
+          if (distMoved >= 2.5) {
+            const bearing = calculateBearing(prevCoordsRef.current[0], prevCoordsRef.current[1], latitude, longitude);
+            setCurrentHeading(bearing);
+          }
         }
 
-        // Find the closest point in routeCoordinates to map to step instruction
+        // Speed in km/h
+        if (speed !== null && !isNaN(speed) && speed >= 0) {
+          setCurrentSpeed(Math.round(speed * 3.6));
+        } else if (prevCoordsRef.current && prevTimeRef.current) {
+          const distMoved = getDistanceMeters(prevCoordsRef.current[0], prevCoordsRef.current[1], latitude, longitude);
+          const timeSec = (Date.now() - prevTimeRef.current) / 1000;
+          if (timeSec > 0 && distMoved > 1.5) {
+            setCurrentSpeed(Math.round((distMoved / timeSec) * 3.6));
+          }
+        }
+
+        prevCoordsRef.current = userLoc;
+        prevTimeRef.current = Date.now();
+
+        // Smooth camera follow
+        if (isCameraLocked && mapInstanceRef.current) {
+          mapInstanceRef.current.setView(userLoc, 17, { animate: true });
+        }
+
+        // Check arrival at upcoming stop
+        const upcomingStop = validStops[currentStopIndex] || validStops[validStops.length - 1];
+        if (upcomingStop && upcomingStop.lat && upcomingStop.lng) {
+          const distToStop = getDistanceMeters(latitude, longitude, upcomingStop.lat, upcomingStop.lng);
+          if (distToStop < 45 && !announcedStopsRef.current.has(upcomingStop.id)) {
+            announcedStopsRef.current.add(upcomingStop.id);
+            setArrivedStop(upcomingStop);
+            speakInstruction(`${upcomingStop.label || 'Durağa'} ulaştınız!`);
+            showNavToast(`${upcomingStop.label || 'Durağa'} ulaştınız!`, "success");
+          }
+        }
+
+        // Find closest point in routeCoordinates
         if (routeCoordinates.length > 0) {
           let minDistance = Infinity;
           let closestIdx = 0;
           routeCoordinates.forEach((coord, idx) => {
-            const dLat = coord[0] - latitude;
-            const dLng = coord[1] - longitude;
-            const distSq = dLat * dLat + dLng * dLng;
-            if (distSq < minDistance) {
-              minDistance = distSq;
+            const dist = getDistanceMeters(coord[0], coord[1], latitude, longitude);
+            if (dist < minDistance) {
+              minDistance = dist;
               closestIdx = idx;
             }
           });
@@ -302,23 +478,28 @@ export default function LeafletMap({
               setCurrentStepIdx(stepIdx);
             }
           }
+
+          // Off-route check (> 80 meters away from route and not rerouted in last 12s)
+          if (minDistance > 80 && Date.now() - lastRerouteTimeRef.current > 12000) {
+            triggerReroute(userLoc);
+          }
         }
       };
 
       const errorCallback = (error: GeolocationPositionError) => {
         console.warn("GPS tracking error:", error);
         setIsGpsLoading(false);
-        alert("GPS konumu alınamadı (İzin reddedildi veya sinyal yok). Simülasyon moduna geçiliyor.");
+        showNavToast("GPS sinyali bekleniyor veya izin gerekli. Simülasyon moduna geçiliyor.", "warning");
         setNavMode('SIMULATION');
         setIsSimulating(true);
         startSimulationMode();
       };
 
-      // Watch user's live position
+      // Watch user's live position with high accuracy
       const watchId = navigator.geolocation.watchPosition(successCallback, errorCallback, {
         enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 10000
+        maximumAge: 1000,
+        timeout: 15000
       });
       watchIdRef.current = watchId;
 
@@ -336,8 +517,16 @@ export default function LeafletMap({
     setCurrentCoordsIdx(0);
     setCurrentStepIdx(0);
     setSimulatedCoords(routeCoordinates[0]);
-    if (mapInstanceRef.current) {
+    setIsCameraLocked(true);
+    setArrivedStop(null);
+    setCurrentStopIndex(1);
+    if (mapInstanceRef.current && routeCoordinates[0]) {
       mapInstanceRef.current.setView(routeCoordinates[0], 17, { animate: true });
+    }
+    if (routeCoordinates.length > 1) {
+      const p1 = routeCoordinates[0];
+      const p2 = routeCoordinates[1];
+      setCurrentHeading(calculateBearing(p1[0], p1[1], p2[0], p2[1]));
     }
     if (routeSummary && routeSummary.steps[0]) {
       speakInstruction("Navigasyon simülasyonu başlatıldı. " + routeSummary.steps[0].instruction);
@@ -350,6 +539,9 @@ export default function LeafletMap({
     setSimulatedCoords(null);
     setCurrentCoordsIdx(0);
     setCurrentStepIdx(0);
+    setArrivedStop(null);
+    setCurrentSpeed(0);
+    setIsCameraLocked(true);
     
     // Clear GPS watchPosition
     if (watchIdRef.current !== null) {
@@ -443,6 +635,11 @@ export default function LeafletMap({
     markersGroupRef.current = markersGroup;
 
     mapInstanceRef.current = map;
+
+    // Listen to user map interactions to unlock camera auto-follow
+    map.on('dragstart', () => {
+      setIsCameraLocked(false);
+    });
 
     // Listen to Map click events
     map.on('click', async (e: L.LeafletMouseEvent) => {
@@ -718,29 +915,30 @@ export default function LeafletMap({
 
     const map = mapInstanceRef.current;
 
-    // Create custom navigation arrow (pulsing car cursor icon)
+    // Create custom vehicle navigation arrow dynamically rotating with currentHeading
     const navIcon = L.divIcon({
       html: `
         <div class="relative flex items-center justify-center">
-          <div class="absolute h-9 w-9 rounded-full bg-indigo-500 border-2 border-white animate-ping opacity-40"></div>
-          <div class="relative h-6.5 w-6.5 rounded-full bg-indigo-600 border-2 border-white flex items-center justify-center shadow-md text-white">
-            <svg class="h-4 w-4 transform rotate-45" viewBox="0 0 24 24" fill="currentColor">
+          <div class="absolute h-10 w-10 rounded-full bg-blue-500/30 animate-ping"></div>
+          <div class="relative h-9 w-9 rounded-full bg-gradient-to-tr from-blue-700 via-indigo-600 to-blue-500 border-2 border-white flex items-center justify-center shadow-2xl text-white transform transition-transform duration-200" style="transform: rotate(${currentHeading}deg);">
+            <svg class="h-5 w-5 fill-current" viewBox="0 0 24 24">
               <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
             </svg>
           </div>
         </div>
       `,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
-      className: 'nav-pulsing-marker'
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      className: 'nav-vehicle-marker'
     });
 
     if (navigationMarkerRef.current) {
       navigationMarkerRef.current.setLatLng(simulatedCoords);
+      navigationMarkerRef.current.setIcon(navIcon);
     } else {
       navigationMarkerRef.current = L.marker(simulatedCoords, { icon: navIcon }).addTo(map);
     }
-  }, [isNavigating, simulatedCoords]);
+  }, [isNavigating, simulatedCoords, currentHeading]);
 
   // Handle active simulation updates
   useEffect(() => {
@@ -755,8 +953,15 @@ export default function LeafletMap({
         setCurrentCoordsIdx(nextIdx);
         setSimulatedCoords(routeCoordinates[nextIdx]);
 
+        // Calculate heading & simulated speed
+        const p1 = routeCoordinates[currentCoordsIdx];
+        const p2 = routeCoordinates[nextIdx];
+        const heading = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
+        setCurrentHeading(heading);
+        setCurrentSpeed(Math.round(simSpeed * 10));
+
         // Smooth camera follow
-        if (mapInstanceRef.current) {
+        if (isCameraLocked && mapInstanceRef.current) {
           mapInstanceRef.current.setView(routeCoordinates[nextIdx], mapInstanceRef.current.getZoom(), { animate: true });
         }
 
@@ -773,12 +978,14 @@ export default function LeafletMap({
       } else {
         // Reached destination end of coordinates!
         setIsSimulating(false);
+        setCurrentSpeed(0);
         speakInstruction("Tebrikler, hedefinize ulaştınız!");
+        showNavToast("Tebrikler, hedefinize ulaştınız! 🎉", "success");
       }
     }, intervalTime);
 
     return () => clearTimeout(timer);
-  }, [isNavigating, isSimulating, currentCoordsIdx, routeCoordinates, simSpeed, currentStepIdx, routeSummary, navMode]);
+  }, [isNavigating, isSimulating, currentCoordsIdx, routeCoordinates, simSpeed, currentStepIdx, routeSummary, navMode, isCameraLocked]);
 
   // Voice guidance prompt read-out on step changes
   useEffect(() => {
@@ -790,9 +997,9 @@ export default function LeafletMap({
   // Listen to external navigation triggers from the sidebar
   useEffect(() => {
     if (navigationTriggerCount && navigationTriggerCount > 0 && routeCoordinates.length > 0) {
-      startNavigation('SIMULATION'); // default to simulation, user can easily toggle to GPS
+      startNavigation(initialNavMode || 'GPS'); // default to GPS for real live tracking!
     }
-  }, [navigationTriggerCount, routeCoordinates]);
+  }, [navigationTriggerCount, routeCoordinates, initialNavMode]);
 
   // Watch position clean up on unmount
   useEffect(() => {
@@ -1086,6 +1293,21 @@ export default function LeafletMap({
         </div>
       )}
 
+      {/* In-App Toast Notification */}
+      {navToast && (
+        <div className={`absolute top-20 left-1/2 -translate-x-1/2 z-[1002] px-4 py-2.5 rounded-2xl shadow-2xl border text-xs font-black flex items-center gap-2.5 animate-in slide-in-from-top-4 duration-200 select-none ${
+          navToast.type === 'warning' ? 'bg-amber-950/95 text-amber-200 border-amber-700/80' :
+          navToast.type === 'success' ? 'bg-emerald-950/95 text-emerald-200 border-emerald-700/80' :
+          'bg-slate-950/95 text-slate-100 border-slate-700/80'
+        }`}>
+          <span className={`h-2.5 w-2.5 rounded-full ${
+            navToast.type === 'warning' ? 'bg-amber-400 animate-ping' :
+            navToast.type === 'success' ? 'bg-emerald-400' : 'bg-blue-400'
+          }`} />
+          <span>{navToast.message}</span>
+        </div>
+      )}
+
       {/* Floating Action Panels overlayed on top of map */}
       {!isNavigating && (
         <div className="absolute top-4 right-4 z-[1000] flex flex-col sm:flex-row gap-2">
@@ -1093,11 +1315,7 @@ export default function LeafletMap({
             <button
               id="clear-all-visited-map-btn"
               type="button"
-              onClick={async () => {
-                if (window.confirm("Haritadaki tüm 'Gidildi ✓' işaretleri temizlenecek. Devam etmek istiyor musunuz? (Son gidilme tarihleri silinmez)")) {
-                  await onClearAllVisited();
-                }
-              }}
+              onClick={() => setConfirmClearVisited(true)}
               className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 p-2.5 rounded-xl shadow-md transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer"
               title="Tüm Gidildi İşaretlerini Temizle"
             >
@@ -1110,12 +1328,12 @@ export default function LeafletMap({
             <button
               id="start-navigation-overlay-btn"
               type="button"
-              onClick={startNavigation}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white p-2.5 rounded-xl shadow-md transition-all flex items-center gap-1.5 font-bold text-xs cursor-pointer animate-bounce"
-              title="Navigasyonu & Sesli Yol Tarifini Başlat"
+              onClick={() => startNavigation('GPS')}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white p-2.5 px-3.5 rounded-xl shadow-lg transition-all flex items-center gap-2 font-black text-xs cursor-pointer animate-pulse hover:scale-105"
+              title="Sistem İçi Canlı GPS Navigasyonunu Başlat"
             >
               <Navigation className="h-4 w-4 text-white fill-white rotate-45" />
-              Navigasyonu Başlat
+              Canlı GPS Navigasyon
             </button>
           )}
 
@@ -1136,6 +1354,114 @@ export default function LeafletMap({
         </div>
       )}
 
+      {/* Live Speedometer & Trip HUD floating widget */}
+      {isNavigating && routeSummary && (
+        <div className="absolute top-24 left-4 z-[1000] flex flex-col gap-2 pointer-events-auto">
+          {/* Speedometer badge */}
+          <div className="bg-slate-950/90 backdrop-blur-md text-white border border-slate-800 rounded-2xl p-2.5 px-3.5 shadow-xl flex items-center gap-2.5 select-none">
+            <div className="h-8 w-8 rounded-full bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-400">
+              <Gauge className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-xl font-black text-white">{currentSpeed}</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">km/s</span>
+              </div>
+              <span className="text-[9px] text-slate-400 font-bold block -mt-1">
+                {navMode === 'GPS' ? 'Canlı Hız' : 'Simülasyon'}
+              </span>
+            </div>
+          </div>
+
+          {/* ETA / Arrival Time badge */}
+          <div className="bg-slate-950/90 backdrop-blur-md text-white border border-slate-800 rounded-xl py-1.5 px-3 shadow-xl flex items-center gap-2 text-xs font-extrabold select-none">
+            <span className="text-[10px] text-emerald-400 font-black">VARIŞ</span>
+            <span className="text-white text-sm">{calculateEta(routeSummary.duration)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Recenter Camera Follow Button */}
+      {isNavigating && !isCameraLocked && (
+        <button
+          id="recenter-camera-btn"
+          type="button"
+          onClick={() => {
+            setIsCameraLocked(true);
+            if (simulatedCoords && mapInstanceRef.current) {
+              mapInstanceRef.current.setView(simulatedCoords, 17, { animate: true });
+            }
+          }}
+          className="absolute bottom-36 right-4 z-[1000] bg-white text-slate-900 hover:bg-slate-50 border border-slate-200 px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 font-black text-xs cursor-pointer animate-in fade-in transition-all hover:scale-105 active:scale-95"
+        >
+          <Target className="h-4 w-4 text-indigo-600 animate-spin" />
+          <span>Aracı Takip Et</span>
+        </button>
+      )}
+
+      {/* Stop Arrival Action HUD card */}
+      {isNavigating && arrivedStop && (
+        <div className="absolute top-24 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-md z-[1002] bg-gradient-to-r from-emerald-950 via-teal-900 to-emerald-900 text-white p-4 rounded-2xl shadow-2xl border-2 border-emerald-400 animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="h-10 w-10 rounded-full bg-emerald-500/30 flex items-center justify-center border border-emerald-300/40 text-emerald-300 shrink-0">
+                <MapPin className="h-6 w-6 text-emerald-300 animate-bounce" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Hedefe Ulaşıldı!</span>
+                <h4 className="font-extrabold text-sm text-white line-clamp-1">{arrivedStop.label || 'Durak'}</h4>
+                <p className="text-[11px] text-emerald-200 line-clamp-1">{arrivedStop.address}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setArrivedStop(null)}
+              className="text-white/60 hover:text-white p-1 rounded-lg cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-emerald-800/80 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                const matchedSaved = savedAddresses.find(a => 
+                  (a.label === arrivedStop.label && a.address === arrivedStop.address) ||
+                  (Math.abs(a.lat - arrivedStop.lat) < 0.0001 && Math.abs(a.lng - arrivedStop.lng) < 0.0001)
+                );
+                const todayStr = new Date().toISOString().split('T')[0];
+                if (matchedSaved && onUpdateAddress) {
+                  const { id, ...rest } = matchedSaved;
+                  await onUpdateAddress(id, {
+                    ...rest,
+                    visited: true,
+                    lastVisitedDate: todayStr
+                  });
+                }
+                speakInstruction("Ziyaret kaydedildi. Sonraki durağa yönlendiriliyorsunuz.");
+                showNavToast(`${arrivedStop.label} ziyaret edildi olarak kaydedildi ✓`, "success");
+                setArrivedStop(null);
+                setCurrentStopIndex(prev => prev + 1);
+              }}
+              className="flex-1 py-2.5 px-3 bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-transform active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Check className="h-4 w-4 stroke-[3]" />
+              Ziyaret Edildi Olarak Kaydet ✓
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setArrivedStop(null);
+                setCurrentStopIndex(prev => prev + 1);
+              }}
+              className="py-2.5 px-3 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+            >
+              Sonraki Durak
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Banner Navigation Guidance HUD */}
       {isNavigating && routeSummary && routeSummary.steps[currentStepIdx] && (
         <div id="navigation-top-banner" className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:max-w-xl bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-2xl shadow-xl border border-slate-800 z-[1001] flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-350">
@@ -1145,9 +1471,16 @@ export default function LeafletMap({
           </div>
           
           <div className="flex-1 min-w-0">
-            <span className="text-[10px] font-bold text-indigo-400 tracking-wider uppercase">
-              {routeSummary.steps[currentStepIdx].distance} Sonra
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black text-indigo-400 tracking-wider uppercase">
+                {routeSummary.steps[currentStepIdx].distance} Sonra
+              </span>
+              {validStops[currentStopIndex] && (
+                <span className="text-[10px] font-bold text-slate-400 truncate">
+                  • Sıradaki: {validStops[currentStopIndex].label || 'Durak'}
+                </span>
+              )}
+            </div>
             <h3 
               className="text-white text-sm sm:text-base font-bold leading-relaxed mt-0.5"
               dangerouslySetInnerHTML={{ __html: routeSummary.steps[currentStepIdx].instruction }}
@@ -1172,6 +1505,21 @@ export default function LeafletMap({
           {/* Mode Switcher Tab Bar */}
           <div className="flex border border-slate-150 rounded-xl p-0.5 bg-slate-50">
             <button
+              id="toggle-navmode-gps-btn"
+              type="button"
+              onClick={() => {
+                startNavigation('GPS');
+              }}
+              className={`flex-1 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                navMode === 'GPS'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Navigation className="h-3 w-3 rotate-45 text-current fill-current" />
+              Canlı GPS Modu
+            </button>
+            <button
               id="toggle-navmode-sim-btn"
               type="button"
               onClick={() => {
@@ -1183,22 +1531,7 @@ export default function LeafletMap({
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
-              Simülasyon Modu
-            </button>
-            <button
-              id="toggle-navmode-gps-btn"
-              type="button"
-              onClick={() => {
-                startNavigation('GPS');
-              }}
-              className={`flex-1 py-1.5 text-xs font-extrabold rounded-lg transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
-                navMode === 'GPS'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              <Navigation className="h-3 w-3 rotate-45 text-current fill-current" />
-              Canlı GPS Modu
+              Simülasyon Önizleme
             </button>
           </div>
 
@@ -1282,8 +1615,9 @@ export default function LeafletMap({
                   id="recenter-gps-btn"
                   type="button"
                   onClick={() => {
+                    setIsCameraLocked(true);
                     if (simulatedCoords && mapInstanceRef.current) {
-                      mapInstanceRef.current.setView(simulatedCoords, 18, { animate: true });
+                      mapInstanceRef.current.setView(simulatedCoords, 17, { animate: true });
                     }
                   }}
                   className="px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 hover:bg-slate-100 text-[11px] font-extrabold text-slate-700 transition-all cursor-pointer flex items-center gap-1"
@@ -1332,6 +1666,38 @@ export default function LeafletMap({
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Clear Visited Modal */}
+      {confirmClearVisited && (
+        <div className="absolute inset-0 z-[1050] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-slate-200 space-y-3">
+            <h3 className="font-extrabold text-slate-900 text-sm">Ziyaret İşaretlerini Temizle</h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Haritadaki tüm 'Gidildi ✓' işaretleri sıfırlanacak. (Son ziyaret tarihleri silinmez). Devam etmek istiyor musunuz?
+            </p>
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmClearVisited(false)}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-bold hover:bg-slate-50 cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setConfirmClearVisited(false);
+                  if (onClearAllVisited) await onClearAllVisited();
+                  showNavToast("Tüm ziyaret işaretleri temizlendi ✓", "success");
+                }}
+                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold shadow-sm cursor-pointer"
+              >
+                Evet, Temizle
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1431,7 +1797,7 @@ export default function LeafletMap({
                           ...rest,
                           deficiencies: mapDeficiencyInput.trim()
                         });
-                        alert("Eksiklik kaydedildi!");
+                        showNavToast("Eksiklik başarıyla kaydedildi!", "success");
                       }}
                       className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
                     >
