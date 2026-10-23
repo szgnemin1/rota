@@ -334,6 +334,24 @@ export default function RoutePlanner({
         })
       );
 
+      // Pre-generate Bulk Whole-Route QR Code pointing to all stops in Yandex Navigator
+      let bulkRouteQrDataUrl: string | null = null;
+      if (yandexUrl) {
+        try {
+          bulkRouteQrDataUrl = await QRCode.toDataURL(yandexUrl, {
+            width: 320,
+            margin: 1,
+            errorCorrectionLevel: 'M',
+            color: {
+              dark: '#b91c1c',
+              light: '#ffffff'
+            }
+          });
+        } catch (err) {
+          console.error("Bulk route QR generation error:", err);
+        }
+      }
+
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -566,6 +584,82 @@ export default function RoutePlanner({
 
         y += blockHeight + 4;
       });
+
+      // Toplu Rota Yandex Navigasyon QR Kartı (Listenin En Sonuna Eklenir)
+      if (bulkRouteQrDataUrl) {
+        const bulkCardHeight = 48;
+        checkPageOverflow(bulkCardHeight + 16);
+
+        // Arka plan kartı
+        doc.setFillColor(254, 242, 242); // Açık kırmızı / rose-50
+        doc.roundedRect(margin, y, maxTextWidth, bulkCardHeight, 2, 2, 'F');
+        doc.setDrawColor(248, 113, 113); // Kırmızı çerçeve / red-400
+        doc.setLineWidth(0.4);
+        doc.roundedRect(margin, y, maxTextWidth, bulkCardHeight, 2, 2, 'S');
+
+        // Sol kırmızı vurgu şeridi
+        doc.setFillColor(220, 38, 38);
+        doc.rect(margin, y, 4, bulkCardHeight, 'F');
+
+        // Sağ taraftaki QR kod kutusu ve görseli
+        const bulkQrSize = 36;
+        const bulkQrX = pageWidth - margin - bulkQrSize - 6;
+        const bulkQrY = y + 4.5;
+
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(bulkQrX - 2, bulkQrY - 2, bulkQrSize + 4, bulkQrSize + 8, 1.5, 1.5, 'F');
+        doc.setDrawColor(239, 68, 68);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(bulkQrX - 2, bulkQrY - 2, bulkQrSize + 4, bulkQrSize + 8, 1.5, 1.5, 'S');
+
+        doc.addImage(bulkRouteQrDataUrl, 'PNG', bulkQrX, bulkQrY, bulkQrSize, bulkQrSize);
+        doc.link(bulkQrX, bulkQrY, bulkQrSize, bulkQrSize, { url: yandexUrl });
+
+        // QR alt yazı
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(185, 28, 28);
+        const qrUnderText = safePdfText("TUM ROTAYI AC");
+        const qrUnderWidth = doc.getTextWidth(qrUnderText);
+        doc.text(qrUnderText, bulkQrX + (bulkQrSize - qrUnderWidth) / 2, bulkQrY + bulkQrSize + 4.5);
+
+        // Sol taraftaki metinler
+        const textLeftX = margin + 8;
+        let bulkTextCursorY = y + 7.5;
+
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(185, 28, 28);
+        doc.text(safePdfText("TOPLU ROTA KAREKODU (YANDEX NAVIGASYON)"), textLeftX, bulkTextCursorY);
+        bulkTextCursorY += 5.5;
+
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(30, 41, 59);
+        doc.text(safePdfText(`Listedeki Tum ${activeStops.length} Durak Tek Seferde Navigasyona Aktarilir`), textLeftX, bulkTextCursorY);
+        bulkTextCursorY += 5;
+
+        doc.setFont('Helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(71, 85, 105);
+        const bulkInfoLines = [
+          "Telefonunuzun kamerasi ile sagdaki buyuk karekodu okutun veya karekoda tiklayin.",
+          "Baslangic, tum ara firmalar ve varis noktasi sirasiyla Yandex Navigasyon'da acilir.",
+          "Sinirsiz durak destegiyle tum rotanizi tek seferde kesintisiz takip edebilirsiniz."
+        ];
+        bulkInfoLines.forEach(line => {
+          doc.text(safePdfText(line), textLeftX, bulkTextCursorY);
+          bulkTextCursorY += 4.2;
+        });
+
+        // Küçük Yandex rozeti
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(185, 28, 28);
+        doc.text(safePdfText(">> Yandex Haritalar ve Navigasyon ile %100 Uyumlu"), textLeftX, bulkTextCursorY + 1.5);
+
+        y += bulkCardHeight + 5;
+      }
 
       // Footer
       checkPageOverflow(14);

@@ -1808,6 +1808,18 @@ export default function SavedAddresses({
                                     <MapPin className="h-3 w-3 shrink-0" />
                                     Varış
                                   </button>
+                                  <a
+                                    id={`yandex-open-btn-${addr.id}`}
+                                    href={`https://yandex.com.tr/maps/?rtext=~${addr.lat},${addr.lng}&rtt=auto`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-extrabold text-[10px] shadow-xs transition-all cursor-pointer border border-red-700 ml-auto"
+                                    title="Yandex Navigasyon'da bu konumu aç ve tek tıkla ⭐ Yer İmlerine kaydet"
+                                  >
+                                    <Navigation className="h-3 w-3 shrink-0 fill-white text-white" />
+                                    <span>Yandex'te Aç (⭐)</span>
+                                  </a>
                                 </div>
                               )}
                             </div>

@@ -1941,6 +1941,18 @@ export default function LeafletMap({
                 )}
               </div>
             </div>
+
+            {/* Direct Yandex Nav Link */}
+            <a
+              id="map-click-yandex-nav-link"
+              href={`https://yandex.com.tr/maps/?rtext=~${clickedCoords.lat},${clickedCoords.lng}&rtt=auto`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-2.5 px-3 bg-red-600 hover:bg-red-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer border border-red-700 active:scale-[0.99]"
+            >
+              <Navigation className="h-3.5 w-3.5 fill-white text-white shrink-0" />
+              <span>Yandex Navigasyon'da Aç (⭐ Yer İmlerine Kaydet)</span>
+            </a>
    
             {/* Close Action Overlay trigger */}
             <button

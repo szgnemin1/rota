@@ -170,3 +170,39 @@ export function generateGeoJSON(items: ExportLocationItem[]): string {
 
   return JSON.stringify(geoJson, null, 2);
 }
+
+/**
+ * Generates standard vCard 3.0 (.vcf) format for mobile contacts (Rehber)
+ * When imported to Android or iPhone, all companies appear in phone contacts with exact address & coordinates.
+ * Yandex Navigasyon automatically finds contacts by name!
+ */
+export function generateVCF(items: ExportLocationItem[]): string {
+  const validItems = items.filter(i => !isNaN(i.lat) && !isNaN(i.lng) && i.lat !== 0 && i.lng !== 0);
+
+  const vcards = validItems.map(item => {
+    const cleanLabel = (item.label || 'Firma').replace(/[;\n\r]/g, ' ');
+    const cleanAddr = (item.address || '').replace(/[;\n\r]/g, ' ');
+    const cleanPhone = (item.phone || '').trim();
+    const cleanContact = (item.contactPerson || '').replace(/[;\n\r]/g, ' ');
+    const note = [
+      item.category ? `Grup: ${item.category}` : '',
+      cleanContact ? `Yetkili: ${cleanContact}` : '',
+      item.deficiencies ? `Not: ${item.deficiencies}` : ''
+    ].filter(Boolean).join(' - ');
+
+    return [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      `FN:${cleanLabel}`,
+      `ORG:${cleanLabel}`,
+      cleanPhone ? `TEL;TYPE=WORK,VOICE:${cleanPhone}` : '',
+      `ADR;TYPE=WORK:;;${cleanAddr};Bursa;;;Türkiye`,
+      `GEO:${item.lat.toFixed(6)};${item.lng.toFixed(6)}`,
+      note ? `NOTE:${note}` : '',
+      `URL:https://yandex.com.tr/maps/?rtext=~${item.lat.toFixed(6)},${item.lng.toFixed(6)}&rtt=auto`,
+      'END:VCARD'
+    ].filter(Boolean).join('\r\n');
+  }).join('\r\n\r\n');
+
+  return vcards;
+}
