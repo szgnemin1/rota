@@ -485,7 +485,7 @@ async function startServer() {
 
         res.json({
           success: true,
-          label: title || "Google Harita Konumu",
+          label: title || "Harita Konumu",
           address: resolvedAddress,
           lat,
           lng
@@ -514,7 +514,7 @@ async function startServer() {
         }
 
         res.status(404).json({
-          error: "Google Harita linkindeki konum koordinatları çözümlenemedi. Lütfen doğrudan arama kutusuna yazmayı veya koordinatları girmeyi deneyin."
+          error: "Harita linkindeki konum koordinatları çözümlenemedi. Lütfen doğrudan arama kutusuna yazmayı veya koordinatları girmeyi deneyin."
         });
       }
     } catch (err: any) {

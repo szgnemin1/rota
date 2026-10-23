@@ -3,6 +3,7 @@ import { SavedAddress, RouteStop } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
 import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X, Edit, Crosshair, Search, Star } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import YandexExportModal from './YandexExportModal';
 
 interface SavedAddressesProps {
   savedAddresses: SavedAddress[];
@@ -162,6 +163,7 @@ export default function SavedAddresses({
   const [localShowGroupModal, setLocalShowGroupModal] = useState(false);
   const isGroupModalOpen = showGroupCreationModal !== undefined ? showGroupCreationModal : localShowGroupModal;
   const setIsGroupModalOpen = setShowGroupCreationModal !== undefined ? setShowGroupCreationModal : setLocalShowGroupModal;
+  const [showYandexExportModal, setShowYandexExportModal] = useState(false);
 
   // Group Creation Modal States
   const [groupName, setGroupName] = useState('');
@@ -1021,7 +1023,17 @@ export default function SavedAddresses({
           <Bookmark className="h-5 w-5 text-indigo-500 fill-indigo-100" />
           Kayıtlı Adreslerim
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <button
+            id="header-yandex-export-btn"
+            type="button"
+            onClick={() => setShowYandexExportModal(true)}
+            className="flex items-center gap-1 text-[11px] font-extrabold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 px-2.5 py-1.5 rounded-lg border border-red-200/60 transition-colors cursor-pointer shadow-xs"
+            title="Kayıtlı firmaları Yandex Haritalar'a aktarın"
+          >
+            <Bookmark className="h-3 w-3 shrink-0 text-red-600" />
+            Yandex'e Aktar
+          </button>
           <button
             id="header-create-group-btn"
             type="button"
@@ -1044,23 +1056,35 @@ export default function SavedAddresses({
         <div className="bg-slate-50/70 rounded-xl p-4 border border-slate-100 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">Yeni Adres Ekle</h3>
-            <button
-              id="trigger-excel-modal-btn"
-              type="button"
-              onClick={() => {
-                setShowExcelModal(true);
-                setExcelFile(null);
-                setExcelRows([]);
-                setMatchedColumns(null);
-                setImportStatus('idle');
-                setResolvedAddresses([]);
-                setImportLog('');
-              }}
-              className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 px-2.5 py-1.5 rounded-lg border border-emerald-200/50 transition-colors cursor-pointer shadow-sm"
-            >
-              <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
-              Excel'den Yükle
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                id="inline-yandex-export-btn"
+                type="button"
+                onClick={() => setShowYandexExportModal(true)}
+                className="flex items-center gap-1.5 text-[11px] font-bold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 px-2.5 py-1.5 rounded-lg border border-red-200/60 transition-colors cursor-pointer shadow-xs"
+                title="Kayıtlı konumları Yandex Haritalar'a aktarın"
+              >
+                <Bookmark className="h-3.5 w-3.5 shrink-0 text-red-600" />
+                Yandex'e Aktar
+              </button>
+              <button
+                id="trigger-excel-modal-btn"
+                type="button"
+                onClick={() => {
+                  setShowExcelModal(true);
+                  setExcelFile(null);
+                  setExcelRows([]);
+                  setMatchedColumns(null);
+                  setImportStatus('idle');
+                  setResolvedAddresses([]);
+                  setImportLog('');
+                }}
+                className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80 px-2.5 py-1.5 rounded-lg border border-emerald-200/50 transition-colors cursor-pointer shadow-sm"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+                Excel'den Yükle
+              </button>
+            </div>
           </div>
           
           <form onSubmit={handleSave} className="space-y-3 pt-1">
@@ -2675,6 +2699,15 @@ export default function SavedAddresses({
           </button>
         </div>
       )}
+
+      {/* Yandex Export Modal */}
+      <YandexExportModal
+        isOpen={showYandexExportModal}
+        onClose={() => setShowYandexExportModal(false)}
+        savedAddresses={savedAddresses}
+        routeStops={routeStops}
+        initialMode="saved"
+      />
     </div>
   );
 }
