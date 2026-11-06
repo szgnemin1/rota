@@ -4,7 +4,7 @@ import PlaceSearchBox from './PlaceSearchBox';
 import {
   MapPin, Plus, Trash2, ArrowUpDown, Navigation,
   Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw, Star, GripVertical, FileText,
-  Compass, Play, ChevronDown, ChevronUp, Bookmark
+  Compass, Play, ChevronDown, ChevronUp, Bookmark, Send, Link as LinkIcon
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -45,6 +45,67 @@ export default function RoutePlanner({
   const [showExternalExport, setShowExternalExport] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [showYandexExportModal, setShowYandexExportModal] = useState(false);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [isGeneratingShareLink, setIsGeneratingShareLink] = useState(false);
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
+
+  const handleCreateAndCopyShareLink = async () => {
+    const valid = routeStops.filter(s => s.lat !== 0 && s.lng !== 0);
+    if (valid.length === 0) {
+      showToast("Rotada geçerli durak bulunmuyor.");
+      return;
+    }
+
+    setIsGeneratingShareLink(true);
+    try {
+      const token = localStorage.getItem('rotaplan_auth_token') || '';
+      let generatedUrl = '';
+
+      try {
+        const res = await fetch('/api/routes/share', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-App-Token': token
+          },
+          body: JSON.stringify({
+            stops: valid,
+            title: `Saha Rotası (${valid.length} Firma)`
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.url) {
+            generatedUrl = `${window.location.origin}${data.url}`;
+          }
+        }
+      } catch (netErr) {
+        console.warn("Server route share failed, using fallback:", netErr);
+      }
+
+      if (!generatedUrl) {
+        const encoded = btoa(encodeURIComponent(JSON.stringify(valid)));
+        generatedUrl = `${window.location.origin}/saha?data=${encoded}`;
+      }
+
+      setShareLink(generatedUrl);
+      await navigator.clipboard.writeText(generatedUrl);
+      setCopiedShareLink(true);
+      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+      setTimeout(() => setCopiedShareLink(false), 3000);
+    } catch (err: any) {
+      const encoded = btoa(encodeURIComponent(JSON.stringify(valid)));
+      const fallbackUrl = `${window.location.origin}/saha?data=${encoded}`;
+      setShareLink(fallbackUrl);
+      await navigator.clipboard.writeText(fallbackUrl);
+      setCopiedShareLink(true);
+      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+      setTimeout(() => setCopiedShareLink(false), 3000);
+    } finally {
+      setIsGeneratingShareLink(false);
+    }
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -1111,28 +1172,81 @@ export default function RoutePlanner({
                 </div>
               </div>
 
+              {/* Standalone Field Link Generation Section */}
+              <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-xl space-y-2.5 shadow-xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">📱</span>
+                    <div>
+                      <h4 className="text-xs font-extrabold text-emerald-950">Özel Saha Takip Linki (Telefonda / Firefox'ta Aç)</h4>
+                      <p className="text-[10px] text-emerald-700">Şifresizdir; telefonda sadece saha listesi açılır, son derece hafiftir.</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    id="copy-field-link-action-btn"
+                    type="button"
+                    disabled={isGeneratingShareLink}
+                    onClick={handleCreateAndCopyShareLink}
+                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-75 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer active:scale-95"
+                  >
+                    {isGeneratingShareLink ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <span>Link Hazırlanıyor...</span>
+                      </>
+                    ) : copiedShareLink ? (
+                      <>
+                        <Check className="h-3.5 w-3.5" />
+                        <span>Link Kopyalandı!</span>
+                      </>
+                    ) : (
+                      <>
+                        <LinkIcon className="h-3.5 w-3.5" />
+                        <span>Saha Linkini Kopyala</span>
+                      </>
+                    )}
+                  </button>
+
+                  <a
+                    id="whatsapp-share-field-link-btn"
+                    href={shareLink ? `https://wa.me/?text=${encodeURIComponent('Bursa Saha Takip Rotası: ' + shareLink)}` : '#'}
+                    onClick={(e) => {
+                      if (!shareLink) {
+                        e.preventDefault();
+                        handleCreateAndCopyShareLink().then(() => {
+                          showToast("Link kopyalandı! Tekrar basarak WhatsApp'a iletebilirsiniz.");
+                        });
+                      }
+                    }}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 text-center"
+                  >
+                    <Send className="h-3.5 w-3.5 text-emerald-300" />
+                    <span>WhatsApp ile Gönder</span>
+                  </a>
+                </div>
+
+                {shareLink && (
+                  <div className="flex items-center justify-between gap-2 p-2 bg-white/95 rounded-lg border border-emerald-300 text-[11px] text-emerald-900 shadow-xs">
+                    <span className="font-mono truncate select-all">{shareLink}</span>
+                    <a
+                      href={shareLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] font-extrabold text-emerald-700 underline shrink-0 hover:text-emerald-900 bg-emerald-100/80 px-2 py-0.5 rounded"
+                    >
+                      Aç ↗
+                    </a>
+                  </div>
+                )}
+              </div>
+
               {/* Navigation Action Buttons */}
               <div className="space-y-2">
-                {/* Direct Switch to Mobile Field Tracker */}
-                {onNavigateToTab && (
-                  <button
-                    id="open-field-tracker-action-btn"
-                    type="button"
-                    onClick={() => onNavigateToTab('field')}
-                    className="w-full flex items-center justify-between p-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border border-emerald-500 active:scale-[0.99] group mb-1"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-lg">📱</span>
-                      <div className="text-left">
-                        <div className="leading-tight">Mobil Saha Ziyaret Modunu Aç</div>
-                        <div className="text-[10px] text-emerald-100 font-medium">Yandex linkleri, anlık notlar ve gidildi işaretleme</div>
-                      </div>
-                    </div>
-                    <span className="bg-white/20 text-white text-[11px] px-2.5 py-1 rounded-lg font-bold shrink-0 group-hover:translate-x-0.5 transition-transform">
-                      {validStops.length} Firma →
-                    </span>
-                  </button>
-                )}
 
                 {/* Yandex Navigator Big Primary Button */}
                 <a

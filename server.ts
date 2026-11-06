@@ -15,6 +15,7 @@ async function startServer() {
   const SESSION_SECRET = process.env.SESSION_SECRET || "bursa-rota-planlayici-guvenli-oturum-anahtari-16";
   const DATA_DIR = path.join(process.cwd(), "data");
   const ADDRESS_FILE = path.join(DATA_DIR, "addresses.json");
+  const SHARED_ROUTES_FILE = path.join(DATA_DIR, "shared_routes.json");
 
   // Ensure data directory and addresses file exist
   if (!fs.existsSync(DATA_DIR)) {
@@ -22,6 +23,9 @@ async function startServer() {
   }
   if (!fs.existsSync(ADDRESS_FILE)) {
     fs.writeFileSync(ADDRESS_FILE, JSON.stringify([], null, 2), "utf-8");
+  }
+  if (!fs.existsSync(SHARED_ROUTES_FILE)) {
+    fs.writeFileSync(SHARED_ROUTES_FILE, JSON.stringify({}, null, 2), "utf-8");
   }
 
   // --- SECURITY: SESSION STORAGE & RATE LIMITING ---
@@ -315,6 +319,102 @@ async function startServer() {
     } catch (err: any) {
       console.error("Bulk update visited failed:", err);
       res.status(500).json({ error: "Toplu gidilme durumu güncellenemedi." });
+    }
+  });
+
+  // --- SAHA TAKİP: PAYLAŞILABİLİR ROTA API'LERİ ---
+  
+  // 1. Rota Paylaşım Linki Oluştur (Yetkili kullanıcı)
+  app.post("/api/routes/share", authenticateToken, (req, res) => {
+    try {
+      const { stops, title } = req.body;
+      if (!Array.isArray(stops) || stops.length === 0) {
+        res.status(400).json({ error: "Rotada geçerli durak bulunamadı." });
+        return;
+      }
+
+      const routeId = crypto.randomBytes(4).toString("hex");
+      const createdAt = new Date().toISOString();
+
+      let sharedRoutes: Record<string, any> = {};
+      if (fs.existsSync(SHARED_ROUTES_FILE)) {
+        try {
+          sharedRoutes = JSON.parse(fs.readFileSync(SHARED_ROUTES_FILE, "utf-8"));
+        } catch (e) {
+          sharedRoutes = {};
+        }
+      }
+
+      sharedRoutes[routeId] = {
+        id: routeId,
+        title: title || `Rota - ${new Date().toLocaleDateString('tr-TR')}`,
+        createdAt,
+        updatedAt: createdAt,
+        stops
+      };
+
+      fs.writeFileSync(SHARED_ROUTES_FILE, JSON.stringify(sharedRoutes, null, 2), "utf-8");
+
+      res.json({
+        success: true,
+        routeId,
+        url: `/saha?id=${routeId}`
+      });
+    } catch (err: any) {
+      console.error("Share route failed:", err);
+      res.status(500).json({ error: "Rota kaydedilemedi: " + err.message });
+    }
+  });
+
+  // 2. Paylaşılan Rotayı Çek (Herkese açık, şifresiz, telefonda anında açılır)
+  app.get("/api/routes/shared/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!id || !fs.existsSync(SHARED_ROUTES_FILE)) {
+        res.status(404).json({ error: "Rota bulunamadı." });
+        return;
+      }
+
+      const sharedRoutes = JSON.parse(fs.readFileSync(SHARED_ROUTES_FILE, "utf-8"));
+      const route = sharedRoutes[id];
+
+      if (!route) {
+        res.status(404).json({ error: "Bu rota bulunamadı veya süresi doldu." });
+        return;
+      }
+
+      res.json({ success: true, route });
+    } catch (err: any) {
+      console.error("Get shared route failed:", err);
+      res.status(500).json({ error: "Rota okunamadı." });
+    }
+  });
+
+  // 3. Sahadan Durak Güncelleme (Not ve Ziyaret Durumu, Şifresiz)
+  app.put("/api/routes/shared/:id/update", (req, res) => {
+    try {
+      const { id } = req.params;
+      const { stops } = req.body;
+
+      if (!id || !Array.isArray(stops) || !fs.existsSync(SHARED_ROUTES_FILE)) {
+        res.status(400).json({ error: "Geçersiz güncelleme verisi." });
+        return;
+      }
+
+      const sharedRoutes = JSON.parse(fs.readFileSync(SHARED_ROUTES_FILE, "utf-8"));
+      if (!sharedRoutes[id]) {
+        res.status(404).json({ error: "Rota bulunamadı." });
+        return;
+      }
+
+      sharedRoutes[id].stops = stops;
+      sharedRoutes[id].updatedAt = new Date().toISOString();
+
+      fs.writeFileSync(SHARED_ROUTES_FILE, JSON.stringify(sharedRoutes, null, 2), "utf-8");
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error("Update shared route failed:", err);
+      res.status(500).json({ error: "Rota güncellenemedi." });
     }
   });
 

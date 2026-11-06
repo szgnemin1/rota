@@ -227,6 +227,44 @@ export default function FieldRouteTracker({
     );
   }
 
+  // Share link handler
+  const handleShareLink = async () => {
+    if (validStops.length === 0) return;
+    try {
+      const token = localStorage.getItem('rotaplan_auth_token') || '';
+      let targetUrl = '';
+      try {
+        const res = await fetch('/api/routes/share', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-App-Token': token
+          },
+          body: JSON.stringify({
+            stops: validStops,
+            title: `Saha Rotası (${validStops.length} Durak)`
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.url) targetUrl = `${window.location.origin}${data.url}`;
+        }
+      } catch (e) {}
+
+      if (!targetUrl) {
+        const encoded = btoa(encodeURIComponent(JSON.stringify(validStops)));
+        targetUrl = `${window.location.origin}/saha?data=${encoded}`;
+      }
+
+      await navigator.clipboard.writeText(targetUrl);
+      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+    } catch (e) {
+      const encoded = btoa(encodeURIComponent(JSON.stringify(validStops)));
+      await navigator.clipboard.writeText(`${window.location.origin}/saha?data=${encoded}`);
+      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col bg-slate-100 h-full overflow-hidden select-none">
       {/* Sticky Top Header / Progress Board */}
@@ -246,15 +284,26 @@ export default function FieldRouteTracker({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleResetAllVisited}
-            title="Tüm Ziyaretleri Sıfırla"
-            className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-red-600 bg-slate-50 hover:bg-red-50 px-2.5 py-1.5 rounded-lg border border-slate-200 transition-colors cursor-pointer"
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span>Sıfırla</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleShareLink}
+              title="Bu rotayı telefonda şifresiz açmak için link kopyala"
+              className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1.5 rounded-lg border border-emerald-200 transition-colors cursor-pointer"
+            >
+              <Share2 className="h-3 w-3" />
+              <span>Link Paylaş</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResetAllVisited}
+              title="Tüm Ziyaretleri Sıfırla"
+              className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-red-600 bg-slate-50 hover:bg-red-50 px-2.5 py-1.5 rounded-lg border border-slate-200 transition-colors cursor-pointer"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Sıfırla</span>
+            </button>
+          </div>
         </div>
 
         {/* Progress Bar */}
