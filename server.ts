@@ -322,19 +322,16 @@ async function startServer() {
     }
   });
 
-  // --- SAHA TAKİP: PAYLAŞILABİLİR ROTA API'LERİ ---
+  // --- SAHA TAKİP: PAYLAŞILABİLİR ULTRA KISA ROTA API'LERİ ---
   
-  // 1. Rota Paylaşım Linki Oluştur (Yetkili kullanıcı)
-  app.post("/api/routes/share", authenticateToken, (req, res) => {
+  // 1. Rota Paylaşım Linki Oluştur (Şifre istemez, ultra kısa id üretir)
+  app.post("/api/routes/share", (req, res) => {
     try {
       const { stops, title } = req.body;
       if (!Array.isArray(stops) || stops.length === 0) {
         res.status(400).json({ error: "Rotada geçerli durak bulunamadı." });
         return;
       }
-
-      const routeId = crypto.randomBytes(4).toString("hex");
-      const createdAt = new Date().toISOString();
 
       let sharedRoutes: Record<string, any> = {};
       if (fs.existsSync(SHARED_ROUTES_FILE)) {
@@ -345,9 +342,17 @@ async function startServer() {
         }
       }
 
+      // Generate shortest clean route ID (e.g. "1", "2", "3"...)
+      let nextNum = 1;
+      while (sharedRoutes[nextNum.toString()]) {
+        nextNum++;
+      }
+      const routeId = nextNum.toString();
+      const createdAt = new Date().toISOString();
+
       sharedRoutes[routeId] = {
         id: routeId,
-        title: title || `Rota - ${new Date().toLocaleDateString('tr-TR')}`,
+        title: title || `Rota #${routeId}`,
         createdAt,
         updatedAt: createdAt,
         stops
@@ -358,12 +363,17 @@ async function startServer() {
       res.json({
         success: true,
         routeId,
-        url: `/saha?id=${routeId}`
+        url: `/s/${routeId}`
       });
     } catch (err: any) {
       console.error("Share route failed:", err);
       res.status(500).json({ error: "Rota kaydedilemedi: " + err.message });
     }
+  });
+
+  // Short URL direct redirect: /s/:id -> /saha?r=:id
+  app.get("/s/:id", (req, res) => {
+    res.redirect(`/saha?r=${req.params.id}`);
   });
 
   // 2. Paylaşılan Rotayı Çek (Herkese açık, şifresiz, telefonda anında açılır)

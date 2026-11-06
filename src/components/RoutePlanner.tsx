@@ -81,26 +81,31 @@ export default function RoutePlanner({
           }
         }
       } catch (netErr) {
-        console.warn("Server route share failed, using fallback:", netErr);
+        console.warn("Server route share failed, using short fallback:", netErr);
       }
 
+      // If network failed, save to localStorage and use short link
       if (!generatedUrl) {
-        const encoded = btoa(encodeURIComponent(JSON.stringify(valid)));
-        generatedUrl = `${window.location.origin}/saha?data=${encoded}`;
+        try {
+          localStorage.setItem('rotaplan_shared_local', JSON.stringify(valid));
+        } catch (e) {}
+        generatedUrl = `${window.location.origin}/saha?r=local`;
       }
 
       setShareLink(generatedUrl);
       await navigator.clipboard.writeText(generatedUrl);
       setCopiedShareLink(true);
-      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+      showToast("✓ Kısa Saha Takip Linki kopyalandı!");
       setTimeout(() => setCopiedShareLink(false), 3000);
     } catch (err: any) {
-      const encoded = btoa(encodeURIComponent(JSON.stringify(valid)));
-      const fallbackUrl = `${window.location.origin}/saha?data=${encoded}`;
+      try {
+        localStorage.setItem('rotaplan_shared_local', JSON.stringify(valid));
+      } catch (e) {}
+      const fallbackUrl = `${window.location.origin}/saha?r=local`;
       setShareLink(fallbackUrl);
       await navigator.clipboard.writeText(fallbackUrl);
       setCopiedShareLink(true);
-      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+      showToast("✓ Kısa Saha Takip Linki kopyalandı!");
       setTimeout(() => setCopiedShareLink(false), 3000);
     } finally {
       setIsGeneratingShareLink(false);

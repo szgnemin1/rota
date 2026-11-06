@@ -40,13 +40,29 @@ export default function StandaloneFieldPage() {
     const loadRouteData = async () => {
       setIsLoading(true);
       const params = new URLSearchParams(window.location.search);
-      const id = params.get('id') || params.get('rota') || params.get('r');
+      const pathMatch = window.location.pathname.match(/^\/s\/([a-zA-Z0-9_-]+)/);
+      const id = pathMatch ? pathMatch[1] : (params.get('r') || params.get('id') || params.get('rota'));
       const encodedData = params.get('data') || window.location.hash.replace(/^#/, '');
 
       setRouteId(id);
 
+      // Special case: local fallback
+      if (id === 'local') {
+        try {
+          const cached = localStorage.getItem('rotaplan_shared_local') || localStorage.getItem('rotaplan_active_stops');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setStops(parsed);
+              setIsLoading(false);
+              return;
+            }
+          }
+        } catch (e) {}
+      }
+
       // Strategy 1: Fetch from server if route ID is provided
-      if (id) {
+      if (id && id !== 'local') {
         try {
           const res = await fetch(`/api/routes/shared/${id}`);
           if (res.ok) {
