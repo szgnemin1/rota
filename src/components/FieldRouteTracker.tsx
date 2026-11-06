@@ -231,15 +231,11 @@ export default function FieldRouteTracker({
   const handleShareLink = async () => {
     if (validStops.length === 0) return;
     try {
-      const token = localStorage.getItem('rotaplan_auth_token') || '';
       let targetUrl = '';
       try {
         const res = await fetch('/api/routes/share', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-App-Token': token
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             stops: validStops,
             title: `Saha Rotası (${validStops.length} Durak)`
@@ -252,16 +248,15 @@ export default function FieldRouteTracker({
       } catch (e) {}
 
       if (!targetUrl) {
-        const encoded = btoa(encodeURIComponent(JSON.stringify(validStops)));
-        targetUrl = `${window.location.origin}/saha?data=${encoded}`;
+        targetUrl = `${window.location.origin}/saha?r=latest`;
       }
 
       await navigator.clipboard.writeText(targetUrl);
-      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+      showToast(`✓ Kısa Saha Takip Linki kopyalandı: ${targetUrl}`);
     } catch (e) {
-      const encoded = btoa(encodeURIComponent(JSON.stringify(validStops)));
-      await navigator.clipboard.writeText(`${window.location.origin}/saha?data=${encoded}`);
-      showToast("✓ Özel Saha Takip Linki kopyalandı!");
+      const fallbackUrl = `${window.location.origin}/saha?r=latest`;
+      await navigator.clipboard.writeText(fallbackUrl);
+      showToast(`✓ Saha Takip Linki kopyalandı: ${fallbackUrl}`);
     }
   };
 

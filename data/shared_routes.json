@@ -11,5 +11,70 @@
         "lng": 29
       }
     ]
+  },
+  "2": {
+    "id": "2",
+    "title": "Test Rota",
+    "createdAt": "2026-11-06T10:02:52.492Z",
+    "updatedAt": "2026-11-06T10:02:52.492Z",
+    "stops": [
+      {
+        "id": "1",
+        "label": "A Firma",
+        "address": "Bursa",
+        "lat": 40.18,
+        "lng": 29.06
+      }
+    ]
+  },
+  "3": {
+    "id": "3",
+    "title": "Bursa Nilüfer & Osmangazi Saha Rotası",
+    "createdAt": "2026-11-06T10:09:14.778Z",
+    "updatedAt": "2026-11-06T10:09:14.778Z",
+    "stops": [
+      {
+        "id": "f1",
+        "label": "Bursa Test Makina",
+        "address": "Nilüfer, Bursa",
+        "lat": 40.21,
+        "lng": 28.95,
+        "phone": "05551112233",
+        "contactPerson": "Ahmet Bey"
+      },
+      {
+        "id": "f2",
+        "label": "Otomotiv Sanayi",
+        "address": "Osmangazi, Bursa",
+        "lat": 40.19,
+        "lng": 29.07,
+        "phone": "05554445566"
+      }
+    ]
+  },
+  "latest": {
+    "id": "3",
+    "title": "Bursa Nilüfer & Osmangazi Saha Rotası",
+    "createdAt": "2026-11-06T10:09:14.778Z",
+    "updatedAt": "2026-11-06T10:09:14.778Z",
+    "stops": [
+      {
+        "id": "f1",
+        "label": "Bursa Test Makina",
+        "address": "Nilüfer, Bursa",
+        "lat": 40.21,
+        "lng": 28.95,
+        "phone": "05551112233",
+        "contactPerson": "Ahmet Bey"
+      },
+      {
+        "id": "f2",
+        "label": "Otomotiv Sanayi",
+        "address": "Osmangazi, Bursa",
+        "lat": 40.19,
+        "lng": 29.07,
+        "phone": "05554445566"
+      }
+    ]
   }
 }

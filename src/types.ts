@@ -41,3 +41,18 @@ export interface RouteSummary {
     duration: string;
   }>;
 }
+
+export interface SavedRoute {
+  id: string;
+  title: string;
+  description?: string;
+  createdAt: string;
+  updatedAt?: string;
+  stops: RouteStop[];
+  travelMode?: TravelMode;
+  distance?: string;
+  duration?: string;
+  category?: string;
+  color?: string;
+}
+

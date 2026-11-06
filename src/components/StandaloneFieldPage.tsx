@@ -35,60 +35,64 @@ export default function StandaloneFieldPage() {
     setTimeout(() => setToastMessage(null), 2500);
   };
 
+  const normalizeStop = (s: any, idx: number): StandaloneStop => ({
+    id: String(s.id || `stop-${idx}`),
+    label: s.label || s.name || s.title || `Firma #${idx + 1}`,
+    address: s.address || '',
+    lat: typeof s.lat === 'number' ? s.lat : parseFloat(s.lat) || 0,
+    lng: typeof s.lng === 'number' ? s.lng : parseFloat(s.lng) || 0,
+    phone: s.phone || '',
+    contactPerson: s.contactPerson || '',
+    category: s.category || '',
+    note: s.note || '',
+    visited: !!s.visited,
+    visitedAt: s.visitedAt
+  });
+
   // Load route data on mount
   useEffect(() => {
     const loadRouteData = async () => {
       setIsLoading(true);
       const params = new URLSearchParams(window.location.search);
       const pathMatch = window.location.pathname.match(/^\/s\/([a-zA-Z0-9_-]+)/);
-      const id = pathMatch ? pathMatch[1] : (params.get('r') || params.get('id') || params.get('rota'));
+      const rawId = pathMatch ? pathMatch[1] : (params.get('r') || params.get('id') || params.get('rota'));
+      const id = (!rawId || rawId === 'local' || rawId === 'undefined' || rawId === 'null') ? 'latest' : rawId;
       const encodedData = params.get('data') || window.location.hash.replace(/^#/, '');
 
       setRouteId(id);
 
-      // Special case: local fallback
-      if (id === 'local') {
-        try {
-          const cached = localStorage.getItem('rotaplan_shared_local') || localStorage.getItem('rotaplan_active_stops');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setStops(parsed);
-              setIsLoading(false);
-              return;
-            }
+      // Strategy 1: Fetch directly from server API (with exact ID or latest active route)
+      try {
+        const res = await fetch(`/api/routes/shared/${id}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.route && Array.isArray(json.route.stops) && json.route.stops.length > 0) {
+            const parsedStops = json.route.stops.map(normalizeStop);
+            setStops(parsedStops);
+            setRouteTitle(json.route.title || 'Saha Rota Takibi');
+            if (json.route.id) setRouteId(json.route.id);
+            setIsLoading(false);
+            try {
+              localStorage.setItem(`rotaplan_shared_${id}`, JSON.stringify(parsedStops));
+            } catch (e) {}
+            return;
           }
-        } catch (e) {}
+        }
+      } catch (err) {
+        console.warn("Could not fetch route from server, checking other fallbacks:", err);
       }
 
-      // Strategy 1: Fetch from server if route ID is provided
-      if (id && id !== 'local') {
+      // If specific id failed, try 'latest'
+      if (id !== 'latest') {
         try {
-          const res = await fetch(`/api/routes/shared/${id}`);
-          if (res.ok) {
-            const json = await res.json();
-            if (json.success && json.route) {
-              setStops(json.route.stops || []);
+          const latestRes = await fetch('/api/routes/shared/latest');
+          if (latestRes.ok) {
+            const json = await latestRes.json();
+            if (json.success && json.route && Array.isArray(json.route.stops) && json.route.stops.length > 0) {
+              const parsedStops = json.route.stops.map(normalizeStop);
+              setStops(parsedStops);
               setRouteTitle(json.route.title || 'Saha Rota Takibi');
-              setIsLoading(false);
-              // Cache locally
-              try {
-                localStorage.setItem(`rotaplan_shared_${id}`, JSON.stringify(json.route.stops));
-              } catch (e) {}
-              return;
-            }
-          }
-        } catch (err) {
-          console.warn("Could not fetch route from server, checking local cache:", err);
-        }
-
-        // Cache fallback for this specific ID
-        try {
-          const cached = localStorage.getItem(`rotaplan_shared_${id}`);
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setStops(parsed);
+              setRouteId(json.route.id || 'latest');
               setIsLoading(false);
               return;
             }
@@ -102,7 +106,7 @@ export default function StandaloneFieldPage() {
           const decodedStr = decodeURIComponent(atob(encodedData));
           const parsed = JSON.parse(decodedStr);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setStops(parsed);
+            setStops(parsed.map(normalizeStop));
             setIsLoading(false);
             return;
           }
@@ -111,14 +115,16 @@ export default function StandaloneFieldPage() {
         }
       }
 
-      // Strategy 3: LocalStorage fallback from active route planner session
+      // Strategy 3: LocalStorage fallback (if opened on same device or previously cached)
       try {
-        const localStatus = localStorage.getItem('rotaplan_field_stops_status');
-        const activeStops = localStorage.getItem('rotaplan_active_stops');
-        if (localStatus || activeStops) {
-          const parsed = JSON.parse(localStatus || activeStops || '[]');
+        const cached = localStorage.getItem(`rotaplan_shared_${id}`) ||
+                       localStorage.getItem('rotaplan_shared_local') ||
+                       localStorage.getItem('rotaplan_field_stops_status') ||
+                       localStorage.getItem('rotaplan_active_stops');
+        if (cached) {
+          const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setStops(parsed);
+            setStops(parsed.map(normalizeStop));
             setIsLoading(false);
             return;
           }
@@ -269,14 +275,40 @@ export default function StandaloneFieldPage() {
         </div>
         <h2 className="text-lg font-extrabold text-slate-900 mb-1">Rotada Durak Bulunamadı</h2>
         <p className="text-xs text-slate-500 max-w-xs mb-6 leading-relaxed">
-          Bu linke ait rota bilgisi bulunamadı veya süresi dolmuş olabilir. Lütfen ana sistemden yeni bir rota linki oluşturun.
+          Bu linke ait henüz bir rota kaydı yok veya bilgisayarda henüz rota oluşturulmadı.
         </p>
-        <a
-          href="/"
-          className="px-5 py-3 bg-slate-900 text-white font-bold text-xs rounded-xl shadow-md hover:bg-slate-800 transition-all cursor-pointer"
-        >
-          Ana Uygulamaya Git
-        </a>
+        <div className="flex flex-col gap-2.5 w-full max-w-xs">
+          <button
+            type="button"
+            onClick={async () => {
+              setIsLoading(true);
+              try {
+                const res = await fetch('/api/routes/shared/latest');
+                if (res.ok) {
+                  const json = await res.json();
+                  if (json.success && json.route && json.route.stops?.length > 0) {
+                    setStops(json.route.stops.map(normalizeStop));
+                    setRouteTitle(json.route.title || 'Saha Rota Takibi');
+                    setIsLoading(false);
+                    return;
+                  }
+                }
+              } catch (e) {}
+              setIsLoading(false);
+              showToast("Henüz aktif rota bulunamadı.");
+            }}
+            className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+          >
+            <RefreshCw className="h-4 w-4" />
+            <span>Son Rotayı Getir / Yenile</span>
+          </button>
+          <a
+            href="/"
+            className="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-all cursor-pointer text-center"
+          >
+            Ana Uygulamaya Git
+          </a>
+        </div>
       </div>
     );
   }

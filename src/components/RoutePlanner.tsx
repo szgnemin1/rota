@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
-import { RouteStop, SavedAddress, TravelMode, RouteSummary } from '../types';
+import { RouteStop, SavedAddress, TravelMode, RouteSummary, SavedRoute } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
 import {
   MapPin, Plus, Trash2, ArrowUpDown, Navigation,
   Car, Footprints, Bike, Bus, Copy, Check, QrCode, ExternalLink, RefreshCw, Star, GripVertical, FileText,
-  Compass, Play, ChevronDown, ChevronUp, Bookmark, Send, Link as LinkIcon
+  Compass, Play, ChevronDown, ChevronUp, Bookmark, Send, Link as LinkIcon, X, Smartphone,
+  FolderKanban, Save
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
 import YandexExportModal from './YandexExportModal';
+import SaveRouteModal from './SaveRouteModal';
 
 interface RoutePlannerProps {
   savedAddresses: SavedAddress[];
@@ -21,7 +23,15 @@ interface RoutePlannerProps {
   onStartNavigation?: (mode?: 'GPS' | 'SIMULATION') => void;
   defaultOrigin?: RouteStop | null;
   onSetDefaultOrigin?: (stop: RouteStop | null) => void;
-  onNavigateToTab?: (tab: 'field' | 'route' | 'saved' | 'visits' | 'settings' | 'map') => void;
+  onNavigateToTab?: (tab: 'field' | 'route' | 'saved' | 'visits' | 'settings' | 'map' | 'routes') => void;
+  savedRoutes?: SavedRoute[];
+  onSaveRoute?: (routeData: {
+    title: string;
+    description: string;
+    category: string;
+    color: string;
+    stops: RouteStop[];
+  }) => Promise<void>;
 }
 
 export default function RoutePlanner({
@@ -35,8 +45,11 @@ export default function RoutePlanner({
   onStartNavigation,
   defaultOrigin,
   onSetDefaultOrigin,
-  onNavigateToTab
+  onNavigateToTab,
+  savedRoutes = [],
+  onSaveRoute
 }: RoutePlannerProps) {
+  const [showSaveRouteModal, setShowSaveRouteModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedYandex, setCopiedYandex] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -46,69 +59,96 @@ export default function RoutePlanner({
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [showYandexExportModal, setShowYandexExportModal] = useState(false);
   const [shareLink, setShareLink] = useState<string | null>(null);
+  const [shareQrCode, setShareQrCode] = useState<string | null>(null);
+  const [showShareModal, setShowShareModal] = useState<boolean>(false);
   const [isGeneratingShareLink, setIsGeneratingShareLink] = useState(false);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
 
-  const handleCreateAndCopyShareLink = async () => {
+  // Arka planda aktif rotayı sunucuya otomatik eşitle (Telefonda anında hazır olsun)
+  useEffect(() => {
+    const valid = routeStops.filter(s => s.lat !== 0 && s.lng !== 0);
+    if (valid.length === 0) return;
+    const timer = setTimeout(() => {
+      fetch('/api/routes/share/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stops: valid,
+          title: `Saha Rotası (${valid.length} Firma)`
+        })
+      }).catch(() => {});
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [routeStops]);
+
+  const handleCreateAndCopyShareLink = async (): Promise<string> => {
     const valid = routeStops.filter(s => s.lat !== 0 && s.lng !== 0);
     if (valid.length === 0) {
       showToast("Rotada geçerli durak bulunmuyor.");
-      return;
+      return '';
     }
 
     setIsGeneratingShareLink(true);
+    let finalUrl = '';
     try {
-      const token = localStorage.getItem('rotaplan_auth_token') || '';
-      let generatedUrl = '';
+      const res = await fetch('/api/routes/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stops: valid,
+          title: `Saha Rotası (${valid.length} Firma)`
+        })
+      });
 
-      try {
-        const res = await fetch('/api/routes/share', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-App-Token': token
-          },
-          body: JSON.stringify({
-            stops: valid,
-            title: `Saha Rotası (${valid.length} Firma)`
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.url) {
-            generatedUrl = `${window.location.origin}${data.url}`;
-          }
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          finalUrl = `${window.location.origin}${data.url}`;
         }
-      } catch (netErr) {
-        console.warn("Server route share failed, using short fallback:", netErr);
       }
+    } catch (netErr) {
+      console.warn("Server route share failed, using fallback:", netErr);
+    }
 
-      // If network failed, save to localStorage and use short link
-      if (!generatedUrl) {
-        try {
-          localStorage.setItem('rotaplan_shared_local', JSON.stringify(valid));
-        } catch (e) {}
-        generatedUrl = `${window.location.origin}/saha?r=local`;
-      }
+    if (!finalUrl) {
+      finalUrl = `${window.location.origin}/saha?r=latest`;
+    }
 
-      setShareLink(generatedUrl);
-      await navigator.clipboard.writeText(generatedUrl);
+    setShareLink(finalUrl);
+
+    // Telefon kamerasıyla anında açmak için büyük QR kod üret
+    try {
+      const qrDataUrl = await QRCode.toDataURL(finalUrl, {
+        width: 340,
+        margin: 1.5,
+        color: { dark: '#0f172a', light: '#ffffff' }
+      });
+      setShareQrCode(qrDataUrl);
+    } catch (e) {
+      console.warn("QR oluşturulamadı:", e);
+    }
+
+    setShowShareModal(true);
+
+    try {
+      await navigator.clipboard.writeText(finalUrl);
       setCopiedShareLink(true);
       showToast("✓ Kısa Saha Takip Linki kopyalandı!");
       setTimeout(() => setCopiedShareLink(false), 3000);
-    } catch (err: any) {
-      try {
-        localStorage.setItem('rotaplan_shared_local', JSON.stringify(valid));
-      } catch (e) {}
-      const fallbackUrl = `${window.location.origin}/saha?r=local`;
-      setShareLink(fallbackUrl);
-      await navigator.clipboard.writeText(fallbackUrl);
-      setCopiedShareLink(true);
-      showToast("✓ Kısa Saha Takip Linki kopyalandı!");
-      setTimeout(() => setCopiedShareLink(false), 3000);
-    } finally {
-      setIsGeneratingShareLink(false);
+    } catch (e) {}
+
+    setIsGeneratingShareLink(false);
+    return finalUrl;
+  };
+
+  const handleWhatsAppShare = async () => {
+    let url = shareLink;
+    if (!url) {
+      url = await handleCreateAndCopyShareLink();
+    }
+    if (url) {
+      const text = encodeURIComponent(`Bursa Saha Takip Rotası:\n${url}`);
+      window.open(`https://wa.me/?text=${text}`, '_blank');
     }
   };
 
@@ -957,33 +997,62 @@ export default function RoutePlanner({
             </div>
           )}
 
-          {/* Action buttons inside list (Swap, Add stop) */}
-          <div className="flex items-center justify-between gap-2 pt-1">
-            <button
-              id="add-waypoint-btn"
-              type="button"
-              disabled={routeStops.length >= 100}
-              onClick={handleAddWaypoint}
-              className={`flex items-center gap-1.5 text-xs font-semibold py-1.5 px-3 rounded-lg border transition-all ${
-                routeStops.length >= 100
-                  ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-70'
-                  : 'text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border-blue-200 cursor-pointer shadow-xs'
-              }`}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Durak Ekle ({routeStops.length})
-            </button>
+          {/* Action buttons inside list (Add, Reverse, Save, Saved Routes) */}
+          <div className="flex items-center justify-between gap-1.5 pt-1 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <button
+                id="add-waypoint-btn"
+                type="button"
+                disabled={routeStops.length >= 100}
+                onClick={handleAddWaypoint}
+                className={`flex items-center gap-1.5 text-xs font-semibold py-1.5 px-2.5 rounded-lg border transition-all ${
+                  routeStops.length >= 100
+                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-70'
+                    : 'text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border-blue-200 cursor-pointer shadow-xs'
+                }`}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Durak Ekle ({routeStops.length})
+              </button>
 
-            <button
-              id="swap-stops-btn"
-              type="button"
-              onClick={handleSwapStops}
-              className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-750 font-semibold bg-slate-50 hover:bg-slate-100 py-1.5 px-3 rounded-lg border border-slate-200 transition-all cursor-pointer"
-              title="Güzergahı Tersine Çevir"
-            >
-              <ArrowUpDown className="h-3.5 w-3.5" />
-              Tersine Çevir
-            </button>
+              <button
+                id="swap-stops-btn"
+                type="button"
+                onClick={handleSwapStops}
+                className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-750 font-semibold bg-slate-50 hover:bg-slate-100 py-1.5 px-2.5 rounded-lg border border-slate-200 transition-all cursor-pointer"
+                title="Güzergahı Tersine Çevir"
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" />
+                Tersine
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                id="save-route-quick-btn"
+                type="button"
+                disabled={validStops.length === 0}
+                onClick={() => setShowSaveRouteModal(true)}
+                className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 py-1.5 px-2.5 rounded-lg border border-emerald-200 transition-all cursor-pointer shadow-xs"
+                title="Bu rotayı kaydedilenlere ekle"
+              >
+                <Save className="h-3.5 w-3.5" />
+                <span>Rotayı Kaydet</span>
+              </button>
+
+              {onNavigateToTab && (
+                <button
+                  id="view-saved-routes-btn"
+                  type="button"
+                  onClick={() => onNavigateToTab('routes')}
+                  className="flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 py-1.5 px-2.5 rounded-lg border border-indigo-200 transition-all cursor-pointer"
+                  title="Kayıtlı rotalarımı listele"
+                >
+                  <FolderKanban className="h-3.5 w-3.5" />
+                  <span>Rotalarım ({savedRoutes.length})</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1194,7 +1263,7 @@ export default function RoutePlanner({
                     id="copy-field-link-action-btn"
                     type="button"
                     disabled={isGeneratingShareLink}
-                    onClick={handleCreateAndCopyShareLink}
+                    onClick={() => handleCreateAndCopyShareLink()}
                     className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-75 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer active:scale-95"
                   >
                     {isGeneratingShareLink ? (
@@ -1202,50 +1271,36 @@ export default function RoutePlanner({
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                         <span>Link Hazırlanıyor...</span>
                       </>
-                    ) : copiedShareLink ? (
-                      <>
-                        <Check className="h-3.5 w-3.5" />
-                        <span>Link Kopyalandı!</span>
-                      </>
                     ) : (
                       <>
-                        <LinkIcon className="h-3.5 w-3.5" />
-                        <span>Saha Linkini Kopyala</span>
+                        <QrCode className="h-3.5 w-3.5" />
+                        <span>QR Kod &amp; Linki Aç</span>
                       </>
                     )}
                   </button>
 
-                  <a
+                  <button
                     id="whatsapp-share-field-link-btn"
-                    href={shareLink ? `https://wa.me/?text=${encodeURIComponent('Bursa Saha Takip Rotası: ' + shareLink)}` : '#'}
-                    onClick={(e) => {
-                      if (!shareLink) {
-                        e.preventDefault();
-                        handleCreateAndCopyShareLink().then(() => {
-                          showToast("Link kopyalandı! Tekrar basarak WhatsApp'a iletebilirsiniz.");
-                        });
-                      }
-                    }}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 text-center"
+                    type="button"
+                    disabled={isGeneratingShareLink}
+                    onClick={handleWhatsAppShare}
+                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-emerald-800 hover:bg-emerald-900 disabled:opacity-75 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 text-center"
                   >
                     <Send className="h-3.5 w-3.5 text-emerald-300" />
                     <span>WhatsApp ile Gönder</span>
-                  </a>
+                  </button>
                 </div>
 
                 {shareLink && (
                   <div className="flex items-center justify-between gap-2 p-2 bg-white/95 rounded-lg border border-emerald-300 text-[11px] text-emerald-900 shadow-xs">
                     <span className="font-mono truncate select-all">{shareLink}</span>
-                    <a
-                      href={shareLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[10px] font-extrabold text-emerald-700 underline shrink-0 hover:text-emerald-900 bg-emerald-100/80 px-2 py-0.5 rounded"
+                    <button
+                      type="button"
+                      onClick={() => setShowShareModal(true)}
+                      className="text-[10px] font-extrabold text-emerald-800 hover:text-emerald-950 bg-emerald-100 hover:bg-emerald-200 px-2 py-0.5 rounded cursor-pointer shrink-0"
                     >
-                      Aç ↗
-                    </a>
+                      QR Kod ↗
+                    </button>
                   </div>
                 )}
               </div>
@@ -1330,6 +1385,18 @@ export default function RoutePlanner({
                 </div>
               )}
 
+              {/* Save Route Button */}
+              <button
+                id="save-route-primary-btn"
+                type="button"
+                disabled={validStops.length === 0}
+                onClick={() => setShowSaveRouteModal(true)}
+                className="w-full flex items-center justify-center gap-2 py-3 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-extrabold text-xs rounded-xl transition-all shadow-md cursor-pointer hover:shadow-lg active:scale-[0.99]"
+              >
+                <Save className="h-4 w-4 shrink-0 text-emerald-200" />
+                <span>Bu Rotayı Kaydet (Daha Sonra Kullan)</span>
+              </button>
+
               {/* Yandex Bookmarks Export Button */}
               <button
                 id="export-yandex-bookmarks-btn"
@@ -1374,6 +1441,111 @@ export default function RoutePlanner({
         routeStops={routeStops}
         initialMode="route"
       />
+
+      {/* Rota Kaydetme Modalı */}
+      <SaveRouteModal
+        isOpen={showSaveRouteModal}
+        onClose={() => setShowSaveRouteModal(false)}
+        routeStops={routeStops}
+        existingCategories={Array.from(new Set(savedRoutes.map(r => r.category || 'Genel')))}
+        onSaveRoute={async (data) => {
+          if (onSaveRoute) {
+            await onSaveRoute(data);
+            showToast("✓ Rota başarıyla 'Kayıtlı Rotalar' listesine eklendi!");
+          }
+        }}
+      />
+
+      {/* Saha Takip Paylaşım & QR Kod Modalı */}
+      {showShareModal && shareLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-sm w-full overflow-hidden text-center p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-left">
+                <span className="h-8 w-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-sm font-bold shadow-xs">
+                  📱
+                </span>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-sm">Mobil Saha Takip Rotası</h3>
+                  <p className="text-[10px] text-emerald-700 font-semibold">Şifresizdir • Hafif Mobil Liste</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowShareModal(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* QR Code Container */}
+            <div className="bg-gradient-to-b from-slate-50 to-slate-100 p-4 rounded-2xl border border-slate-200 flex flex-col items-center">
+              {shareQrCode ? (
+                <img
+                  src={shareQrCode}
+                  alt="Saha Rota QR Kodu"
+                  className="w-48 h-48 rounded-xl shadow-xs border border-white"
+                />
+              ) : (
+                <div className="w-48 h-48 rounded-xl bg-slate-200 animate-pulse flex items-center justify-center text-xs text-slate-400">
+                  QR Hazırlanıyor...
+                </div>
+              )}
+              <div className="mt-2.5 flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                <Smartphone className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>Telefon Kamerasını Tutun (Anında Açar)</span>
+              </div>
+            </div>
+
+            {/* Short URL Box */}
+            <div className="space-y-1 text-left">
+              <label className="text-[11px] font-bold text-slate-600">Kısa Link:</label>
+              <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 rounded-xl border border-slate-300">
+                <span className="font-mono text-xs text-slate-800 truncate px-2 select-all flex-1">
+                  {shareLink}
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(shareLink);
+                    setCopiedShareLink(true);
+                    showToast("✓ Link panoya kopyalandı!");
+                    setTimeout(() => setCopiedShareLink(false), 2000);
+                  }}
+                  className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer shrink-0"
+                >
+                  {copiedShareLink ? "Kopyalandı ✓" : "Kopyala"}
+                </button>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={handleWhatsAppShare}
+                className="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <Send className="h-3.5 w-3.5 text-emerald-200" />
+                <span>WhatsApp ile İlet</span>
+              </button>
+              <a
+                href={shareLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1 text-center cursor-pointer border border-slate-200"
+              >
+                <span>Önizle ↗</span>
+              </a>
+            </div>
+
+            <p className="text-[10px] text-slate-500 leading-tight">
+              Sahadaki personel linke tıkladığında şifre girmeden sadece durak listesini görür. Yanlarındaki butonla tek tıkla Yandex Navigasyon açılır.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

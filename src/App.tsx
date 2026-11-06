@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { RouteStop, SavedAddress, TravelMode, RouteSummary } from './types';
+import { RouteStop, SavedAddress, TravelMode, RouteSummary, SavedRoute } from './types';
 import RoutePlanner from './components/RoutePlanner';
 import SavedAddresses from './components/SavedAddresses';
+import SavedRoutesView from './components/SavedRoutesView';
 import SettingsComponent from './components/Settings';
 import VisitsAndDeficiencies from './components/VisitsAndDeficiencies';
 import LeafletMap from './components/LeafletMap';
 import FieldRouteTracker from './components/FieldRouteTracker';
 import { detectSmartCategory } from './utils/categoryDetector';
-import { Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal, CheckCircle2, AlertTriangle, X, Settings as SettingsIcon, ClipboardList, CheckSquare } from 'lucide-react';
+import {
+  Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal,
+  CheckCircle2, AlertTriangle, X, Settings as SettingsIcon, ClipboardList,
+  CheckSquare, FolderKanban
+} from 'lucide-react';
 
 export default function App() {
   // Authentication states
@@ -23,6 +28,9 @@ export default function App() {
 
   // Saved Addresses (synced with VDS)
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+
+  // Saved Routes (synced with VDS)
+  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
 
   // Sabit Başlangıç Konumu (Default Origin) state
   const [defaultOrigin, setDefaultOrigin] = useState<RouteStop | null>(() => {
@@ -163,8 +171,30 @@ export default function App() {
   };
 
   // Tab management (Mobile & Desktop split)
-  const [activeTab, setActiveTab] = useState<'route' | 'field' | 'saved' | 'settings' | 'visits'>('route');
-  const [mobileTab, setMobileTab] = useState<'route' | 'field' | 'saved' | 'settings' | 'map' | 'visits'>('route');
+  const [activeTab, setActiveTab] = useState<'route' | 'field' | 'routes' | 'saved' | 'settings' | 'visits'>('route');
+  const [mobileTab, setMobileTab] = useState<'route' | 'field' | 'routes' | 'saved' | 'settings' | 'map' | 'visits'>('route');
+
+  // Fetch Saved Routes from VDS
+  const fetchSavedRoutes = async () => {
+    try {
+      const res = await fetch('/api/saved-routes');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setSavedRoutes(data);
+          try {
+            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(data));
+          } catch (e) {}
+        }
+      }
+    } catch (err) {
+      console.warn("Kayıtlı rotalar sunucudan çekilemedi, önbellek deneniyor:", err);
+      try {
+        const cached = localStorage.getItem('rotaplan_saved_routes_cache');
+        if (cached) setSavedRoutes(JSON.parse(cached));
+      } catch (e) {}
+    }
+  };
 
   // 1. Authentication Status Check
   useEffect(() => {
@@ -193,7 +223,7 @@ export default function App() {
     checkAuthStatus();
   }, []);
 
-  // 2. Fetch Saved Addresses from VDS (when logged in)
+  // 2. Fetch Saved Addresses & Routes from VDS (when logged in)
   useEffect(() => {
     if (isAuthenticated === true) {
       const fetchAddresses = async () => {
@@ -213,6 +243,7 @@ export default function App() {
         }
       };
       fetchAddresses();
+      fetchSavedRoutes();
       detectDeviceLocation();
     }
   }, [isAuthenticated]);
@@ -471,6 +502,86 @@ export default function App() {
     }
   };
 
+  // --- SAVED ROUTES HANDLERS ---
+  const handleSaveRoute = async (routeData: {
+    title: string;
+    description: string;
+    category: string;
+    color: string;
+    stops: RouteStop[];
+  }) => {
+    try {
+      const res = await fetch('/api/saved-routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...routeData,
+          travelMode,
+          distance: routeSummary?.distance || '',
+          duration: routeSummary?.duration || ''
+        })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.routes) {
+          setSavedRoutes(json.routes);
+          try {
+            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(json.routes));
+          } catch (e) {}
+        }
+      }
+    } catch (err) {
+      console.error("Rota kaydedilemedi:", err);
+    }
+  };
+
+  const handleUpdateSavedRoute = async (id: string, updates: Partial<SavedRoute>) => {
+    try {
+      const res = await fetch(`/api/saved-routes/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.routes) {
+          setSavedRoutes(json.routes);
+          try {
+            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(json.routes));
+          } catch (e) {}
+        }
+      }
+    } catch (err) {
+      console.error("Rota güncellenemedi:", err);
+    }
+  };
+
+  const handleDeleteSavedRoute = async (id: string) => {
+    try {
+      const res = await fetch(`/api/saved-routes/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.routes) {
+          setSavedRoutes(json.routes);
+          try {
+            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(json.routes));
+          } catch (e) {}
+        }
+      }
+    } catch (err) {
+      console.error("Rota silinemedi:", err);
+    }
+  };
+
+  const handleLoadSavedRoute = (route: SavedRoute, targetTab: 'route' | 'field' = 'route') => {
+    setRouteStops(route.stops);
+    if (route.travelMode) setTravelMode(route.travelMode);
+    setActiveTab(targetTab);
+    setMobileTab(targetTab === 'field' ? 'field' : 'map');
+  };
+
   const handleSelectOnMap = (address: SavedAddress) => {
     // Create a new reference so the map centers even if clicking the same address again
     setSelectedAddressForMap({ ...address });
@@ -592,7 +703,7 @@ export default function App() {
         className={`${
           mobileTab === 'map' ? 'hidden' : 'flex'
         } md:flex ${
-          activeTab === 'visits' ? 'w-full md:w-full' : activeTab === 'field' ? 'w-full md:w-[480px]' : 'w-full md:w-[420px]'
+          activeTab === 'visits' ? 'w-full md:w-full' : (activeTab === 'field' || activeTab === 'routes') ? 'w-full md:w-[480px]' : 'w-full md:w-[420px]'
         } shrink-0 flex-col bg-white border-r border-slate-200 shadow-sm z-10 h-[calc(100vh-64px)] md:h-full overflow-hidden transition-all duration-300`}
       >
         {/* Header Branding */}
@@ -644,7 +755,7 @@ export default function App() {
         </header>
 
         {/* Desktop tab selector bar */}
-        <nav className="grid grid-cols-5 border-b border-slate-100 bg-slate-50/50 p-1">
+        <nav className="grid grid-cols-6 border-b border-slate-100 bg-slate-50/50 p-1">
           <button
             id="desktop-tab-route"
             onClick={() => {
@@ -653,7 +764,7 @@ export default function App() {
             }}
             className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
               (activeTab === 'route')
-                ? 'bg-white text-blue-600 shadow-sm border border-slate-100'
+                ? 'bg-white text-blue-600 shadow-sm border border-slate-100 font-bold'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
@@ -677,6 +788,26 @@ export default function App() {
             {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length > 0 && (
               <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full">
                 {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length}
+              </span>
+            )}
+          </button>
+          <button
+            id="desktop-tab-routes"
+            onClick={() => {
+              setActiveTab('routes');
+              setMobileTab('routes');
+            }}
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer relative ${
+              (activeTab === 'routes')
+                ? 'bg-white text-indigo-600 shadow-sm border border-slate-100 font-bold'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            <FolderKanban className="h-3.5 w-3.5 text-indigo-600" />
+            <span>Rotalarım</span>
+            {savedRoutes.length > 0 && (
+              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded-full">
+                {savedRoutes.length}
               </span>
             )}
           </button>
@@ -743,7 +874,22 @@ export default function App() {
               onSetDefaultOrigin={handleSetDefaultOrigin}
               onNavigateToTab={(tab) => {
                 setActiveTab(tab);
-                setMobileTab(tab);
+                setMobileTab(tab === 'map' ? 'map' : tab);
+              }}
+              savedRoutes={savedRoutes}
+              onSaveRoute={handleSaveRoute}
+            />
+          )}
+
+          {activeTab === 'routes' && (
+            <SavedRoutesView
+              savedRoutes={savedRoutes}
+              onLoadRoute={handleLoadSavedRoute}
+              onDeleteRoute={handleDeleteSavedRoute}
+              onUpdateRoute={handleUpdateSavedRoute}
+              onNavigateToTab={(tab) => {
+                setActiveTab(tab);
+                setMobileTab(tab === 'map' ? 'map' : tab);
               }}
             />
           )}
@@ -843,7 +989,7 @@ export default function App() {
       {/* BOTTOM GLOBAL TAB BAR FOR MOBILE */}
       <footer 
         id="mobile-bottom-tabs"
-        className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 grid grid-cols-5 md:hidden z-20 shadow-lg select-none"
+        className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 grid grid-cols-6 md:hidden z-20 shadow-lg select-none"
       >
         <button
           id="mobile-tab-btn-route"
@@ -855,8 +1001,8 @@ export default function App() {
             mobileTab === 'route' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <Navigation className="h-5 w-5 mb-0.5" />
-          <span className="text-[10px] font-medium leading-none">Rota Planla</span>
+          <Navigation className="h-4.5 w-4.5 mb-0.5" />
+          <span className="text-[9px] font-medium leading-none">Planla</span>
         </button>
 
         <button
@@ -870,14 +1016,35 @@ export default function App() {
           }`}
         >
           <div className="relative">
-            <CheckSquare className="h-5 w-5 mb-0.5 text-emerald-600" />
+            <CheckSquare className="h-4.5 w-4.5 mb-0.5 text-emerald-600" />
             {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length > 0 && (
-              <span className="absolute -top-1 -right-2 bg-emerald-600 text-white text-[9px] font-extrabold px-1 rounded-full">
+              <span className="absolute -top-1 -right-2 bg-emerald-600 text-white text-[8px] font-extrabold px-1 rounded-full">
                 {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length}
               </span>
             )}
           </div>
-          <span className="text-[10px] font-medium leading-none">Saha Takip</span>
+          <span className="text-[9px] font-medium leading-none">Saha</span>
+        </button>
+
+        <button
+          id="mobile-tab-btn-routes"
+          onClick={() => {
+            setActiveTab('routes');
+            setMobileTab('routes');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer relative ${
+            mobileTab === 'routes' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <div className="relative">
+            <FolderKanban className="h-4.5 w-4.5 mb-0.5 text-indigo-600" />
+            {savedRoutes.length > 0 && (
+              <span className="absolute -top-1 -right-2 bg-indigo-600 text-white text-[8px] font-extrabold px-1 rounded-full">
+                {savedRoutes.length}
+              </span>
+            )}
+          </div>
+          <span className="text-[9px] font-medium leading-none">Rotalar</span>
         </button>
 
         <button
@@ -889,8 +1056,8 @@ export default function App() {
             mobileTab === 'map' ? 'text-emerald-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <MapIcon className="h-5 w-5 mb-0.5" />
-          <span className="text-[10px] font-medium leading-none">Harita</span>
+          <MapIcon className="h-4.5 w-4.5 mb-0.5" />
+          <span className="text-[9px] font-medium leading-none">Harita</span>
         </button>
 
         <button
@@ -903,8 +1070,8 @@ export default function App() {
             mobileTab === 'saved' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <Bookmark className="h-5 w-5 mb-0.5" />
-          <span className="text-[10px] font-medium leading-none">Adreslerim</span>
+          <Bookmark className="h-4.5 w-4.5 mb-0.5" />
+          <span className="text-[9px] font-medium leading-none">Adresler</span>
         </button>
 
         <button
@@ -917,8 +1084,8 @@ export default function App() {
             mobileTab === 'visits' ? 'text-teal-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <ClipboardList className="h-5 w-5 mb-0.5" />
-          <span className="text-[10px] font-medium leading-none">Rutin &amp; Eksik</span>
+          <ClipboardList className="h-4.5 w-4.5 mb-0.5" />
+          <span className="text-[9px] font-medium leading-none">Eksikler</span>
         </button>
       </footer>
 

@@ -16,8 +16,9 @@ async function startServer() {
   const DATA_DIR = path.join(process.cwd(), "data");
   const ADDRESS_FILE = path.join(DATA_DIR, "addresses.json");
   const SHARED_ROUTES_FILE = path.join(DATA_DIR, "shared_routes.json");
+  const SAVED_ROUTES_FILE = path.join(DATA_DIR, "saved_routes.json");
 
-  // Ensure data directory and addresses file exist
+  // Ensure data directory and files exist
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
@@ -26,6 +27,9 @@ async function startServer() {
   }
   if (!fs.existsSync(SHARED_ROUTES_FILE)) {
     fs.writeFileSync(SHARED_ROUTES_FILE, JSON.stringify({}, null, 2), "utf-8");
+  }
+  if (!fs.existsSync(SAVED_ROUTES_FILE)) {
+    fs.writeFileSync(SAVED_ROUTES_FILE, JSON.stringify([], null, 2), "utf-8");
   }
 
   // --- SECURITY: SESSION STORAGE & RATE LIMITING ---
@@ -350,13 +354,16 @@ async function startServer() {
       const routeId = nextNum.toString();
       const createdAt = new Date().toISOString();
 
-      sharedRoutes[routeId] = {
+      const routeData = {
         id: routeId,
-        title: title || `Rota #${routeId}`,
+        title: title || `Saha Rotası #${routeId}`,
         createdAt,
         updatedAt: createdAt,
         stops
       };
+
+      sharedRoutes[routeId] = routeData;
+      sharedRoutes["latest"] = routeData;
 
       fs.writeFileSync(SHARED_ROUTES_FILE, JSON.stringify(sharedRoutes, null, 2), "utf-8");
 
@@ -371,7 +378,49 @@ async function startServer() {
     }
   });
 
-  // Short URL direct redirect: /s/:id -> /saha?r=:id
+  // 1b. Aktif Rotayı Arka Planda Otomatik Eşitle (Kullanıcı link butonuna basmasa bile telefonda hazır olsun)
+  app.post("/api/routes/share/active", (req, res) => {
+    try {
+      const { stops, title } = req.body;
+      if (!Array.isArray(stops) || stops.length === 0) {
+        res.json({ success: false, reason: "Boş durak" });
+        return;
+      }
+
+      let sharedRoutes: Record<string, any> = {};
+      if (fs.existsSync(SHARED_ROUTES_FILE)) {
+        try {
+          sharedRoutes = JSON.parse(fs.readFileSync(SHARED_ROUTES_FILE, "utf-8"));
+        } catch (e) {
+          sharedRoutes = {};
+        }
+      }
+
+      // Keep latest active route updated
+      const activeData = {
+        id: "active",
+        title: title || "Aktif Saha Rotası",
+        createdAt: sharedRoutes["latest"]?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        stops
+      };
+
+      sharedRoutes["active"] = activeData;
+      sharedRoutes["latest"] = activeData;
+
+      fs.writeFileSync(SHARED_ROUTES_FILE, JSON.stringify(sharedRoutes, null, 2), "utf-8");
+      res.json({ success: true, url: "/saha?r=active" });
+    } catch (err: any) {
+      console.error("Active route sync failed:", err);
+      res.status(500).json({ error: "Eşitleme hatası" });
+    }
+  });
+
+  // Short URL direct redirects
+  app.get("/s", (req, res) => {
+    res.redirect("/saha?r=latest");
+  });
+
   app.get("/s/:id", (req, res) => {
     res.redirect(`/saha?r=${req.params.id}`);
   });
@@ -380,23 +429,43 @@ async function startServer() {
   app.get("/api/routes/shared/:id", (req, res) => {
     try {
       const { id } = req.params;
-      if (!id || !fs.existsSync(SHARED_ROUTES_FILE)) {
-        res.status(404).json({ error: "Rota bulunamadı." });
+      if (!fs.existsSync(SHARED_ROUTES_FILE)) {
+        res.status(404).json({ error: "Henüz kaydedilmiş rota bulunmuyor." });
         return;
       }
 
       const sharedRoutes = JSON.parse(fs.readFileSync(SHARED_ROUTES_FILE, "utf-8"));
-      const route = sharedRoutes[id];
 
-      if (!route) {
-        res.status(404).json({ error: "Bu rota bulunamadı veya süresi doldu." });
+      // 1. Check exact key match
+      let route = sharedRoutes[id];
+
+      // 2. If 'latest', 'active', 'local', 'son' or not found, fall back to latest available route
+      if (!route || id === "latest" || id === "active" || id === "local" || id === "son") {
+        if (sharedRoutes["latest"] && Array.isArray(sharedRoutes["latest"].stops) && sharedRoutes["latest"].stops.length > 0) {
+          route = sharedRoutes["latest"];
+        } else if (sharedRoutes["active"] && Array.isArray(sharedRoutes["active"].stops) && sharedRoutes["active"].stops.length > 0) {
+          route = sharedRoutes["active"];
+        } else {
+          // Find highest numbered route key
+          const numericKeys = Object.keys(sharedRoutes)
+            .filter((k) => !isNaN(parseInt(k, 10)))
+            .sort((a, b) => parseInt(b, 10) - parseInt(a, 10));
+
+          if (numericKeys.length > 0) {
+            route = sharedRoutes[numericKeys[0]];
+          }
+        }
+      }
+
+      if (!route || !Array.isArray(route.stops) || route.stops.length === 0) {
+        res.status(404).json({ error: "Henüz planlanmış bir rota bulunamadı. Lütfen bilgisayardan rotanızı oluşturup tekrar deneyin." });
         return;
       }
 
       res.json({ success: true, route });
     } catch (err: any) {
       console.error("Get shared route failed:", err);
-      res.status(500).json({ error: "Rota okunamadı." });
+      res.status(500).json({ error: "Rota okunamadı: " + err.message });
     }
   });
 
@@ -412,13 +481,20 @@ async function startServer() {
       }
 
       const sharedRoutes = JSON.parse(fs.readFileSync(SHARED_ROUTES_FILE, "utf-8"));
-      if (!sharedRoutes[id]) {
-        res.status(404).json({ error: "Rota bulunamadı." });
-        return;
+      
+      const targetKey = sharedRoutes[id] ? id : (sharedRoutes["latest"] ? "latest" : id);
+      if (!sharedRoutes[targetKey]) {
+        sharedRoutes[targetKey] = { id: targetKey, stops, updatedAt: new Date().toISOString() };
+      } else {
+        sharedRoutes[targetKey].stops = stops;
+        sharedRoutes[targetKey].updatedAt = new Date().toISOString();
       }
 
-      sharedRoutes[id].stops = stops;
-      sharedRoutes[id].updatedAt = new Date().toISOString();
+      // Also keep latest in sync
+      if (sharedRoutes["latest"]) {
+        sharedRoutes["latest"].stops = stops;
+        sharedRoutes["latest"].updatedAt = new Date().toISOString();
+      }
 
       fs.writeFileSync(SHARED_ROUTES_FILE, JSON.stringify(sharedRoutes, null, 2), "utf-8");
       res.json({ success: true });
@@ -429,7 +505,129 @@ async function startServer() {
   });
 
 
-  // --- REMOVED UPDATE TRIGGER FROM APP ---
+  // --- SAVED ROUTES (KAYITLI ROTALAR) ENDPOINTS ---
+
+  // Get all saved routes
+  app.get("/api/saved-routes", (req, res) => {
+    try {
+      if (!fs.existsSync(SAVED_ROUTES_FILE)) {
+        res.json([]);
+        return;
+      }
+      const data = fs.readFileSync(SAVED_ROUTES_FILE, "utf-8");
+      const routes = JSON.parse(data);
+      res.json(Array.isArray(routes) ? routes : []);
+    } catch (err: any) {
+      console.error("Read saved routes failed:", err);
+      res.status(500).json({ error: "Kayıtlı rotalar okunamadı." });
+    }
+  });
+
+  // Save new route or update existing
+  app.post("/api/saved-routes", (req, res) => {
+    try {
+      const { id, title, description, stops, travelMode, distance, duration, category, color } = req.body;
+      if (!Array.isArray(stops) || stops.length === 0) {
+        res.status(400).json({ error: "Rotada kaydedilecek geçerli durak bulunamadı." });
+        return;
+      }
+
+      let routes: any[] = [];
+      if (fs.existsSync(SAVED_ROUTES_FILE)) {
+        try {
+          routes = JSON.parse(fs.readFileSync(SAVED_ROUTES_FILE, "utf-8"));
+        } catch (e) {
+          routes = [];
+        }
+      }
+
+      const now = new Date().toISOString();
+      const routeId = id || `route_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const cleanTitle = (title && title.trim()) ? title.trim() : `Rota - ${new Date().toLocaleDateString('tr-TR')} (${stops.length} Durak)`;
+
+      const newRoute = {
+        id: routeId,
+        title: cleanTitle,
+        description: description || "",
+        createdAt: now,
+        updatedAt: now,
+        stops,
+        travelMode: travelMode || "DRIVING",
+        distance: distance || "",
+        duration: duration || "",
+        category: category || "Genel",
+        color: color || "#2563eb"
+      };
+
+      const existingIndex = routes.findIndex((r: any) => r.id === routeId);
+      if (existingIndex > -1) {
+        routes[existingIndex] = {
+          ...routes[existingIndex],
+          ...newRoute,
+          createdAt: routes[existingIndex].createdAt || now
+        };
+      } else {
+        routes.unshift(newRoute);
+      }
+
+      fs.writeFileSync(SAVED_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf-8");
+      res.json({ success: true, route: newRoute, routes });
+    } catch (err: any) {
+      console.error("Save route failed:", err);
+      res.status(500).json({ error: "Rota kaydedilemedi: " + err.message });
+    }
+  });
+
+  // Update a saved route details
+  app.put("/api/saved-routes/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      if (!id || !fs.existsSync(SAVED_ROUTES_FILE)) {
+        res.status(404).json({ error: "Rota bulunamadı." });
+        return;
+      }
+
+      const routes = JSON.parse(fs.readFileSync(SAVED_ROUTES_FILE, "utf-8"));
+      const idx = routes.findIndex((r: any) => r.id === id);
+      if (idx === -1) {
+        res.status(404).json({ error: "Güncellenecek rota bulunamadı." });
+        return;
+      }
+
+      routes[idx] = {
+        ...routes[idx],
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+
+      fs.writeFileSync(SAVED_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf-8");
+      res.json({ success: true, route: routes[idx], routes });
+    } catch (err: any) {
+      console.error("Update saved route failed:", err);
+      res.status(500).json({ error: "Rota güncellenemedi." });
+    }
+  });
+
+  // Delete a saved route
+  app.delete("/api/saved-routes/:id", (req, res) => {
+    try {
+      const { id } = req.params;
+      if (!id || !fs.existsSync(SAVED_ROUTES_FILE)) {
+        res.status(404).json({ error: "Rota bulunamadı." });
+        return;
+      }
+
+      let routes = JSON.parse(fs.readFileSync(SAVED_ROUTES_FILE, "utf-8"));
+      routes = routes.filter((r: any) => r.id !== id);
+
+      fs.writeFileSync(SAVED_ROUTES_FILE, JSON.stringify(routes, null, 2), "utf-8");
+      res.json({ success: true, routes });
+    } catch (err: any) {
+      console.error("Delete saved route failed:", err);
+      res.status(500).json({ error: "Rota silinemedi." });
+    }
+  });
   app.post("/api/update-app", authenticateToken, (req, res) => {
     const updateScript = path.join(process.cwd(), "update.sh");
 
