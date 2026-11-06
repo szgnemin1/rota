@@ -23,6 +23,11 @@ export interface RouteStop {
   lat: number;
   lng: number;
   isSaved?: boolean;
+  phone?: string;
+  contactPerson?: string;
+  note?: string;
+  visited?: boolean;
+  visitedAt?: string;
 }
 
 export type TravelMode = 'DRIVING' | 'WALKING' | 'BICYCLING' | 'TRANSIT';

@@ -21,6 +21,7 @@ interface RoutePlannerProps {
   onStartNavigation?: (mode?: 'GPS' | 'SIMULATION') => void;
   defaultOrigin?: RouteStop | null;
   onSetDefaultOrigin?: (stop: RouteStop | null) => void;
+  onNavigateToTab?: (tab: 'field' | 'route' | 'saved' | 'visits' | 'settings' | 'map') => void;
 }
 
 export default function RoutePlanner({
@@ -33,7 +34,8 @@ export default function RoutePlanner({
   onClearRoute,
   onStartNavigation,
   defaultOrigin,
-  onSetDefaultOrigin
+  onSetDefaultOrigin,
+  onNavigateToTab
 }: RoutePlannerProps) {
   const [copied, setCopied] = useState(false);
   const [copiedYandex, setCopiedYandex] = useState(false);
@@ -310,48 +312,9 @@ export default function RoutePlanner({
     }
 
     setIsGeneratingPdf(true);
-    showToast("PDF hazırlanıyor, QR kodlar oluşturuluyor...");
+    showToast("Firma listesi PDF olarak hazırlanıyor...");
 
     try {
-      // Pre-generate QR codes for each stop pointing to Yandex Navigator
-      const qrDataUrls = await Promise.all(
-        activeStops.map(async (stop) => {
-          const stopUrl = getStopYandexUrl(stop.lat, stop.lng);
-          try {
-            return await QRCode.toDataURL(stopUrl, {
-              width: 180,
-              margin: 1,
-              errorCorrectionLevel: 'M',
-              color: {
-                dark: '#0f172a',
-                light: '#ffffff'
-              }
-            });
-          } catch (err) {
-            console.error("QR Code generation error for stop:", stop.label, err);
-            return null;
-          }
-        })
-      );
-
-      // Pre-generate Bulk Whole-Route QR Code pointing to all stops in Yandex Navigator
-      let bulkRouteQrDataUrl: string | null = null;
-      if (yandexUrl) {
-        try {
-          bulkRouteQrDataUrl = await QRCode.toDataURL(yandexUrl, {
-            width: 320,
-            margin: 1,
-            errorCorrectionLevel: 'M',
-            color: {
-              dark: '#b91c1c',
-              light: '#ffffff'
-            }
-          });
-        } catch (err) {
-          console.error("Bulk route QR generation error:", err);
-        }
-      }
-
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -380,9 +343,9 @@ export default function RoutePlanner({
 
       // Title
       doc.setFont('Helvetica', 'bold');
-      doc.setFontSize(14);
+      doc.setFontSize(13);
       doc.setTextColor(30, 41, 59);
-      doc.text(safePdfText("ROTA ZIYARET VE EKSIKLIK RAPORU"), margin + 5, y + 7);
+      doc.text(safePdfText("ROTA ZIYARET VE FIRMA LISTESI"), margin + 5, y + 7);
 
       // Date and Total Stops Subtitle
       doc.setFont('Helvetica', 'normal');
@@ -395,14 +358,14 @@ export default function RoutePlanner({
       }
       doc.text(safePdfText(metaStr), margin + 5, y + 13);
 
-      // Provider badge (Yandex)
+      // Right Header Badge
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(8);
-      doc.setTextColor(220, 38, 38);
-      const badgeText = safePdfText("[YANDEX NAVIGASYON UYUMLU]");
+      doc.setTextColor(79, 70, 229);
+      const badgeText = safePdfText("[SAHA ZIYARET FORMU]");
       doc.text(badgeText, pageWidth - margin - doc.getTextWidth(badgeText) - 5, y + 10);
 
-      y += 24;
+      y += 23;
 
       // Draw each stop
       activeStops.forEach((stop, index) => {
@@ -415,9 +378,9 @@ export default function RoutePlanner({
 
         const labelVal = stop.label || (isOrigin ? "Baslangic Noktasi" : isDest ? "Varis Noktasi" : `Durak ${index + 1}`);
         const addressVal = stop.address || "Adres belirtilmemis";
-        const phone = savedAddr?.phone || '';
-        const contactPerson = savedAddr?.contactPerson || '';
-        const deficiencies = savedAddr?.deficiencies || '';
+        const phone = savedAddr?.phone || stop.phone || '';
+        const contactPerson = savedAddr?.contactPerson || stop.contactPerson || '';
+        const deficiencies = savedAddr?.deficiencies || stop.note || '';
         const category = savedAddr?.category || 'Genel';
         const interval = savedAddr?.visitInterval && savedAddr?.visitInterval !== 'none' ? intervalLabels[savedAddr.visitInterval] : '';
 
@@ -425,27 +388,23 @@ export default function RoutePlanner({
         if (isOrigin) stopTypeStr = "[BASLANGIC]";
         if (isDest) stopTypeStr = "[VARIS]";
 
-        // Right side QR column configuration
-        const qrSize = 24; // 24mm x 24mm QR box
-        const qrBoxWidth = 32; // Includes label & padding
-        const qrX = pageWidth - margin - qrSize - 4;
-
-        // Available text width on the left (prevents text overflow / overlapping)
-        const contentWidth = maxTextWidth - qrBoxWidth - 8; // ~ 146 mm
+        // Right side Checkbox & Signature column (width 38mm)
+        const actionColWidth = 38;
+        const contentWidth = maxTextWidth - actionColWidth - 8; // ~ 140 mm for clean, wide text
 
         // 1. Calculate text wraps accurately
         doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(10);
-        const splitLabel = doc.splitTextToSize(safePdfText(`${stopTypeStr} ${labelVal}`), contentWidth);
+        doc.setFontSize(9.5);
+        const splitLabel = doc.splitTextToSize(safePdfText(`${index + 1}. ${labelVal}  ${stopTypeStr}`), contentWidth);
 
         doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(8.5);
+        doc.setFontSize(8);
         const splitAddress = doc.splitTextToSize(safePdfText(`Adres: ${addressVal}`), contentWidth);
 
         let splitContact: string[] = [];
         if (phone || contactPerson) {
           splitContact = doc.splitTextToSize(
-            safePdfText(`Iletisim: ${phone}${contactPerson ? ` (Yetkili: ${contactPerson})` : ''}`),
+            safePdfText(`Iletisim: ${phone}${contactPerson ? `  |  Yetkili: ${contactPerson}` : ''}`),
             contentWidth
           );
         }
@@ -453,28 +412,27 @@ export default function RoutePlanner({
         let splitDeficiencies: string[] = [];
         if (deficiencies) {
           doc.setFont('Helvetica', 'bold');
-          doc.setFontSize(8.5);
-          splitDeficiencies = doc.splitTextToSize(safePdfText(`Eksiklik / Not: ${deficiencies}`), contentWidth);
+          doc.setFontSize(8);
+          splitDeficiencies = doc.splitTextToSize(safePdfText(`Not / Eksiklik: ${deficiencies}`), contentWidth);
         }
 
-        // 2. Dynamic card height calculation so long firm names NEVER overlap
-        const lineH = 4.2;
-        let textCalculatedHeight = 6; // top padding
-        textCalculatedHeight += splitLabel.length * 4.6; // title lines
+        // 2. Dynamic card height calculation so firm info never overlaps
+        const lineH = 3.8;
+        let textCalculatedHeight = 5; // top padding
+        textCalculatedHeight += splitLabel.length * 4.2; // title lines
         if (savedAddr) textCalculatedHeight += lineH; // group badge line
         textCalculatedHeight += splitAddress.length * lineH; // address lines
         if (splitContact.length > 0) textCalculatedHeight += splitContact.length * lineH; // contact lines
         if (splitDeficiencies.length > 0) textCalculatedHeight += splitDeficiencies.length * lineH; // deficiency lines
-        textCalculatedHeight += 6; // bottom padding
+        textCalculatedHeight += 5; // bottom padding
 
-        const minQrCardHeight = qrSize + 13; // QR + top space + 'Yandex QR' label + bottom space
-        const blockHeight = Math.max(textCalculatedHeight, minQrCardHeight);
+        const blockHeight = Math.max(textCalculatedHeight, 22);
 
         // Check page overflow
-        checkPageOverflow(blockHeight + 5);
+        checkPageOverflow(blockHeight + 4);
 
         // Background card rectangle
-        doc.setFillColor(248, 250, 252);
+        doc.setFillColor(250, 250, 252);
         doc.roundedRect(margin, y, maxTextWidth, blockHeight, 1.5, 1.5, 'F');
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(0.3);
@@ -491,40 +449,40 @@ export default function RoutePlanner({
         doc.rect(margin, y, 3, blockHeight, 'F');
 
         // Text Cursor
-        let cursorY = y + 5;
+        let cursorY = y + 4.5;
 
-        // Render Title & Company Name (multiline safe)
+        // Render Title & Company Name
         doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(10);
+        doc.setFontSize(9.5);
         doc.setTextColor(30, 41, 59);
         splitLabel.forEach((line: string) => {
           doc.text(line, margin + 6, cursorY);
-          cursorY += 4.6;
+          cursorY += 4.2;
         });
 
         // Render Group / Category & Interval
         if (savedAddr) {
           doc.setFont('Helvetica', 'normal');
-          doc.setFontSize(8);
+          doc.setFontSize(7.5);
           doc.setTextColor(100, 116, 139);
           const catText = `Grup: ${category}${interval ? `  |  Periyot: ${interval}` : ''}`;
           doc.text(safePdfText(catText), margin + 6, cursorY);
           cursorY += lineH;
         }
 
-        // Render Address (multiline safe)
+        // Render Address
         doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(8.5);
+        doc.setFontSize(8);
         doc.setTextColor(71, 85, 105);
         splitAddress.forEach((line: string) => {
           doc.text(line, margin + 6, cursorY);
           cursorY += lineH;
         });
 
-        // Render Contact info (multiline safe)
+        // Render Contact info
         if (splitContact.length > 0) {
           doc.setFont('Helvetica', 'normal');
-          doc.setFontSize(8.5);
+          doc.setFontSize(8);
           doc.setTextColor(67, 56, 202); // indigo
           splitContact.forEach((line: string) => {
             doc.text(line, margin + 6, cursorY);
@@ -532,10 +490,10 @@ export default function RoutePlanner({
           });
         }
 
-        // Render Deficiencies (multiline safe)
+        // Render Deficiencies / Notes
         if (splitDeficiencies.length > 0) {
           doc.setFont('Helvetica', 'bold');
-          doc.setFontSize(8.5);
+          doc.setFontSize(8);
           doc.setTextColor(220, 38, 38); // red
           splitDeficiencies.forEach((line: string) => {
             doc.text(line, margin + 6, cursorY);
@@ -543,140 +501,54 @@ export default function RoutePlanner({
           });
         }
 
-        // Render QR Code on the right side
-        const qrImage = qrDataUrls[index];
-        const qrY = y + 3.5;
+        // RIGHT SIDE: Checkbox & Signature Box (Clean, pen-friendly)
+        const rightColX = pageWidth - margin - actionColWidth;
+        
+        // Vertical divider line
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.2);
+        doc.line(rightColX - 3, y + 2, rightColX - 3, y + blockHeight - 2);
 
-        if (qrImage) {
-          // QR background box
-          doc.setFillColor(255, 255, 255);
-          doc.roundedRect(qrX - 1.5, qrY - 1.5, qrSize + 3, qrSize + 7.5, 1, 1, 'F');
-          doc.setDrawColor(203, 213, 225);
-          doc.setLineWidth(0.2);
-          doc.roundedRect(qrX - 1.5, qrY - 1.5, qrSize + 3, qrSize + 7.5, 1, 1, 'S');
+        // [ ] GIDILDI Checkbox
+        const boxSize = 5;
+        const boxY = y + 4.5;
+        doc.setDrawColor(71, 85, 105);
+        doc.setLineWidth(0.4);
+        doc.rect(rightColX, boxY, boxSize, boxSize);
 
-          // QR Image
-          doc.addImage(qrImage, 'PNG', qrX, qrY, qrSize, qrSize);
+        doc.setFont('Helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(51, 65, 85);
+        doc.text("GIDILDI", rightColX + boxSize + 2.5, boxY + 4);
 
-          // Clickable link on QR
-          const stopUrl = getStopYandexUrl(stop.lat, stop.lng);
-          doc.link(qrX, qrY, qrSize, qrSize, { url: stopUrl });
-
-          // QR Subtitle label
-          doc.setFont('Helvetica', 'bold');
-          doc.setFontSize(6.5);
-          doc.setTextColor(220, 38, 38);
-          const qrLabel = "Yandex Konum";
-          const qrLabelWidth = doc.getTextWidth(qrLabel);
-          doc.text(qrLabel, qrX + (qrSize - qrLabelWidth) / 2, qrY + qrSize + 4);
-        }
-
-        // Gidildi checkbox
-        const chkBoxX = qrX - 18;
-        const chkBoxY = y + blockHeight - 7.5;
-        doc.setDrawColor(148, 163, 184);
-        doc.setLineWidth(0.3);
-        doc.rect(chkBoxX + 9, chkBoxY, 4.5, 4.5);
+        // Signature / Note line
         doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(7.5);
+        doc.setFontSize(7);
         doc.setTextColor(148, 163, 184);
-        doc.text("Gidildi", chkBoxX, chkBoxY + 3.5);
+        doc.text("Imza / Not:", rightColX, y + blockHeight - 5);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.2);
+        doc.line(rightColX + 13, y + blockHeight - 5, pageWidth - margin - 2, y + blockHeight - 5);
 
-        y += blockHeight + 4;
+        y += blockHeight + 3.5;
       });
 
-      // Toplu Rota Yandex Navigasyon QR Kartı (Listenin En Sonuna Eklenir)
-      if (bulkRouteQrDataUrl) {
-        const bulkCardHeight = 48;
-        checkPageOverflow(bulkCardHeight + 16);
-
-        // Arka plan kartı
-        doc.setFillColor(254, 242, 242); // Açık kırmızı / rose-50
-        doc.roundedRect(margin, y, maxTextWidth, bulkCardHeight, 2, 2, 'F');
-        doc.setDrawColor(248, 113, 113); // Kırmızı çerçeve / red-400
-        doc.setLineWidth(0.4);
-        doc.roundedRect(margin, y, maxTextWidth, bulkCardHeight, 2, 2, 'S');
-
-        // Sol kırmızı vurgu şeridi
-        doc.setFillColor(220, 38, 38);
-        doc.rect(margin, y, 4, bulkCardHeight, 'F');
-
-        // Sağ taraftaki QR kod kutusu ve görseli
-        const bulkQrSize = 36;
-        const bulkQrX = pageWidth - margin - bulkQrSize - 6;
-        const bulkQrY = y + 4.5;
-
-        doc.setFillColor(255, 255, 255);
-        doc.roundedRect(bulkQrX - 2, bulkQrY - 2, bulkQrSize + 4, bulkQrSize + 8, 1.5, 1.5, 'F');
-        doc.setDrawColor(239, 68, 68);
-        doc.setLineWidth(0.3);
-        doc.roundedRect(bulkQrX - 2, bulkQrY - 2, bulkQrSize + 4, bulkQrSize + 8, 1.5, 1.5, 'S');
-
-        doc.addImage(bulkRouteQrDataUrl, 'PNG', bulkQrX, bulkQrY, bulkQrSize, bulkQrSize);
-        doc.link(bulkQrX, bulkQrY, bulkQrSize, bulkQrSize, { url: yandexUrl });
-
-        // QR alt yazı
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(7);
-        doc.setTextColor(185, 28, 28);
-        const qrUnderText = safePdfText("TUM ROTAYI AC");
-        const qrUnderWidth = doc.getTextWidth(qrUnderText);
-        doc.text(qrUnderText, bulkQrX + (bulkQrSize - qrUnderWidth) / 2, bulkQrY + bulkQrSize + 4.5);
-
-        // Sol taraftaki metinler
-        const textLeftX = margin + 8;
-        let bulkTextCursorY = y + 7.5;
-
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(185, 28, 28);
-        doc.text(safePdfText("TOPLU ROTA KAREKODU (YANDEX NAVIGASYON)"), textLeftX, bulkTextCursorY);
-        bulkTextCursorY += 5.5;
-
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.setTextColor(30, 41, 59);
-        doc.text(safePdfText(`Listedeki Tum ${activeStops.length} Durak Tek Seferde Navigasyona Aktarilir`), textLeftX, bulkTextCursorY);
-        bulkTextCursorY += 5;
-
-        doc.setFont('Helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.setTextColor(71, 85, 105);
-        const bulkInfoLines = [
-          "Telefonunuzun kamerasi ile sagdaki buyuk karekodu okutun veya karekoda tiklayin.",
-          "Baslangic, tum ara firmalar ve varis noktasi sirasiyla Yandex Navigasyon'da acilir.",
-          "Sinirsiz durak destegiyle tum rotanizi tek seferde kesintisiz takip edebilirsiniz."
-        ];
-        bulkInfoLines.forEach(line => {
-          doc.text(safePdfText(line), textLeftX, bulkTextCursorY);
-          bulkTextCursorY += 4.2;
-        });
-
-        // Küçük Yandex rozeti
-        doc.setFont('Helvetica', 'bold');
-        doc.setFontSize(7.5);
-        doc.setTextColor(185, 28, 28);
-        doc.text(safePdfText(">> Yandex Haritalar ve Navigasyon ile %100 Uyumlu"), textLeftX, bulkTextCursorY + 1.5);
-
-        y += bulkCardHeight + 5;
-      }
-
       // Footer
-      checkPageOverflow(14);
+      checkPageOverflow(12);
       doc.setDrawColor(241, 245, 249);
       doc.line(margin, y, pageWidth - margin, y);
-      y += 5;
+      y += 4.5;
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
       doc.text(
-        safePdfText("Bu rapor Rota Planlama Sistemi tarafindan uretilmistir. Karekodlar (QR) dogrudan Yandex Haritalar ve Navigasyon ile uyumludur."),
+        safePdfText("Rota Planlama Sistemi | Ziyaret Takip Formu. Sahada cihazinizdan tek tikla Yandex Maps ile gitmek icin uygulamadaki 'Saha Takip' sekmesini kullanabilirsiniz."),
         margin,
         y
       );
 
-      doc.save(`rota_ziyaret_raporu_${todayStr.replace(/\./g, '_')}.pdf`);
-      showToast("PDF başarıyla indirildi!");
+      doc.save(`rota_firma_ziyaret_listesi_${todayStr.replace(/\./g, '_')}.pdf`);
+      showToast("Sade firma listesi PDF olarak indirildi!");
     } catch (err: any) {
       console.error("PDF generation failed:", err);
       showToast("PDF oluşturulurken bir hata oluştu: " + err.message);
@@ -1241,6 +1113,27 @@ export default function RoutePlanner({
 
               {/* Navigation Action Buttons */}
               <div className="space-y-2">
+                {/* Direct Switch to Mobile Field Tracker */}
+                {onNavigateToTab && (
+                  <button
+                    id="open-field-tracker-action-btn"
+                    type="button"
+                    onClick={() => onNavigateToTab('field')}
+                    className="w-full flex items-center justify-between p-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer border border-emerald-500 active:scale-[0.99] group mb-1"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-lg">📱</span>
+                      <div className="text-left">
+                        <div className="leading-tight">Mobil Saha Ziyaret Modunu Aç</div>
+                        <div className="text-[10px] text-emerald-100 font-medium">Yandex linkleri, anlık notlar ve gidildi işaretleme</div>
+                      </div>
+                    </div>
+                    <span className="bg-white/20 text-white text-[11px] px-2.5 py-1 rounded-lg font-bold shrink-0 group-hover:translate-x-0.5 transition-transform">
+                      {validStops.length} Firma →
+                    </span>
+                  </button>
+                )}
+
                 {/* Yandex Navigator Big Primary Button */}
                 <a
                   id="send-yandex-nav-btn"
@@ -1329,7 +1222,7 @@ export default function RoutePlanner({
                 <span>Konumları Yandex Haritalarım'a Aktar (.kml / .gpx)</span>
               </button>
 
-              {/* PDF Report Download Button */}
+              {/* PDF Report Download Button (Clean Company List) */}
               <button
                 id="export-pdf-report-btn"
                 type="button"
@@ -1340,12 +1233,12 @@ export default function RoutePlanner({
                 {isGeneratingPdf ? (
                   <>
                     <RefreshCw className="h-4 w-4 shrink-0 animate-spin" />
-                    <span>PDF & QR Kodlar Hazırlanıyor...</span>
+                    <span>Firma Listesi Hazırlanıyor...</span>
                   </>
                 ) : (
                   <>
                     <FileText className="h-4 w-4 shrink-0 text-indigo-200" />
-                    <span>Ziyaret & Eksiklik Raporunu PDF İndir (Yandex QR Kodlu)</span>
+                    <span>Firma Ziyaret Listesini PDF İndir (Sade Liste)</span>
                   </>
                 )}
               </button>

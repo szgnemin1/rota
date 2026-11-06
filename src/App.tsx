@@ -5,8 +5,9 @@ import SavedAddresses from './components/SavedAddresses';
 import SettingsComponent from './components/Settings';
 import VisitsAndDeficiencies from './components/VisitsAndDeficiencies';
 import LeafletMap from './components/LeafletMap';
+import FieldRouteTracker from './components/FieldRouteTracker';
 import { detectSmartCategory } from './utils/categoryDetector';
-import { Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal, CheckCircle2, AlertTriangle, X, Settings as SettingsIcon, ClipboardList } from 'lucide-react';
+import { Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal, CheckCircle2, AlertTriangle, X, Settings as SettingsIcon, ClipboardList, CheckSquare } from 'lucide-react';
 
 export default function App() {
   // Authentication states
@@ -162,8 +163,8 @@ export default function App() {
   };
 
   // Tab management (Mobile & Desktop split)
-  const [activeTab, setActiveTab] = useState<'route' | 'saved' | 'settings' | 'visits'>('route');
-  const [mobileTab, setMobileTab] = useState<'route' | 'saved' | 'settings' | 'map' | 'visits'>('route');
+  const [activeTab, setActiveTab] = useState<'route' | 'field' | 'saved' | 'settings' | 'visits'>('route');
+  const [mobileTab, setMobileTab] = useState<'route' | 'field' | 'saved' | 'settings' | 'map' | 'visits'>('route');
 
   // 1. Authentication Status Check
   useEffect(() => {
@@ -591,7 +592,7 @@ export default function App() {
         className={`${
           mobileTab === 'map' ? 'hidden' : 'flex'
         } md:flex ${
-          activeTab === 'visits' ? 'w-full md:w-full' : 'w-full md:w-[420px]'
+          activeTab === 'visits' ? 'w-full md:w-full' : activeTab === 'field' ? 'w-full md:w-[480px]' : 'w-full md:w-[420px]'
         } shrink-0 flex-col bg-white border-r border-slate-200 shadow-sm z-10 h-[calc(100vh-64px)] md:h-full overflow-hidden transition-all duration-300`}
       >
         {/* Header Branding */}
@@ -608,6 +609,21 @@ export default function App() {
 
           {/* Secure Actions Header Deck */}
           <div className="flex items-center gap-1">
+            <button
+              id="btn-settings-header-action"
+              onClick={() => {
+                setActiveTab('settings');
+                setMobileTab('settings');
+              }}
+              title="Ayarlar"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer border ${
+                activeTab === 'settings'
+                  ? 'bg-violet-600 text-white border-violet-600 shadow-xs'
+                  : 'bg-slate-100 hover:bg-violet-50 text-slate-500 hover:text-violet-600 border-slate-200/60'
+              }`}
+            >
+              <SettingsIcon className="h-3.5 w-3.5" />
+            </button>
             <button
               id="btn-update-app-action"
               onClick={handleUpdateApp}
@@ -628,21 +644,41 @@ export default function App() {
         </header>
 
         {/* Desktop tab selector bar */}
-        <nav className="grid grid-cols-4 border-b border-slate-100 bg-slate-50/50 p-1">
+        <nav className="grid grid-cols-5 border-b border-slate-100 bg-slate-50/50 p-1">
           <button
             id="desktop-tab-route"
             onClick={() => {
               setActiveTab('route');
               setMobileTab('route');
             }}
-            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
               (activeTab === 'route')
                 ? 'bg-white text-blue-600 shadow-sm border border-slate-100'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            <Navigation className="h-4 w-4" />
-            Rota Oluştur
+            <Navigation className="h-3.5 w-3.5" />
+            <span>Rota</span>
+          </button>
+          <button
+            id="desktop-tab-field"
+            onClick={() => {
+              setActiveTab('field');
+              setMobileTab('field');
+            }}
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer relative ${
+              (activeTab === 'field')
+                ? 'bg-white text-emerald-600 shadow-sm border border-slate-100 font-bold'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            <CheckSquare className="h-3.5 w-3.5 text-emerald-600" />
+            <span>Saha Takip</span>
+            {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length > 0 && (
+              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full">
+                {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length}
+              </span>
+            )}
           </button>
           <button
             id="desktop-tab-saved"
@@ -650,14 +686,14 @@ export default function App() {
               setActiveTab('saved');
               setMobileTab('saved');
             }}
-            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
               (activeTab === 'saved')
                 ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            <Bookmark className="h-4 w-4" />
-            Adres Defteri
+            <Bookmark className="h-3.5 w-3.5" />
+            <span>Adresler</span>
           </button>
           <button
             id="desktop-tab-visits"
@@ -665,14 +701,14 @@ export default function App() {
               setActiveTab('visits');
               setMobileTab('visits');
             }}
-            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
               (activeTab === 'visits')
                 ? 'bg-white text-teal-600 shadow-sm border border-slate-100'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            <ClipboardList className="h-4 w-4" />
-            Ziyaret &amp; Eksikler
+            <ClipboardList className="h-3.5 w-3.5" />
+            <span>Eksikler</span>
           </button>
           <button
             id="desktop-tab-settings"
@@ -680,14 +716,14 @@ export default function App() {
               setActiveTab('settings');
               setMobileTab('settings');
             }}
-            className={`flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
               (activeTab === 'settings')
                 ? 'bg-white text-violet-600 shadow-sm border border-slate-100'
                 : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
             }`}
           >
-            <SettingsIcon className="h-4 w-4" />
-            Ayarlar
+            <SettingsIcon className="h-3.5 w-3.5" />
+            <span>Ayarlar</span>
           </button>
         </nav>
 
@@ -705,6 +741,23 @@ export default function App() {
               onStartNavigation={handleStartNavigation}
               defaultOrigin={defaultOrigin}
               onSetDefaultOrigin={handleSetDefaultOrigin}
+              onNavigateToTab={(tab) => {
+                setActiveTab(tab);
+                setMobileTab(tab);
+              }}
+            />
+          )}
+
+          {activeTab === 'field' && (
+            <FieldRouteTracker
+              routeStops={routeStops}
+              setRouteStops={setRouteStops}
+              savedAddresses={savedAddresses}
+              onUpdateAddress={handleUpdateAddress}
+              onNavigateToTab={(tab) => {
+                setActiveTab(tab);
+                setMobileTab(tab);
+              }}
             />
           )}
 
@@ -799,11 +852,45 @@ export default function App() {
             setMobileTab('route');
           }}
           className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'route' ? 'text-blue-600 font-semibold' : 'text-slate-500 hover:text-slate-700'
+            mobileTab === 'route' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <Navigation className="h-5 w-5 mb-1" />
-          <span className="text-[10px] font-medium">Rota Planla</span>
+          <Navigation className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-medium leading-none">Rota Planla</span>
+        </button>
+
+        <button
+          id="mobile-tab-btn-field"
+          onClick={() => {
+            setActiveTab('field');
+            setMobileTab('field');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer relative ${
+            mobileTab === 'field' ? 'text-emerald-600 font-bold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <div className="relative">
+            <CheckSquare className="h-5 w-5 mb-0.5 text-emerald-600" />
+            {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length > 0 && (
+              <span className="absolute -top-1 -right-2 bg-emerald-600 text-white text-[9px] font-extrabold px-1 rounded-full">
+                {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] font-medium leading-none">Saha Takip</span>
+        </button>
+
+        <button
+          id="mobile-tab-btn-map"
+          onClick={() => {
+            setMobileTab('map');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
+            mobileTab === 'map' ? 'text-emerald-600 font-bold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <MapIcon className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-medium leading-none">Harita</span>
         </button>
 
         <button
@@ -813,11 +900,11 @@ export default function App() {
             setMobileTab('saved');
           }}
           className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'saved' ? 'text-indigo-600 font-semibold' : 'text-slate-500 hover:text-slate-700'
+            mobileTab === 'saved' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <Bookmark className="h-5 w-5 mb-1" />
-          <span className="text-[10px] font-medium">Adreslerim</span>
+          <Bookmark className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-medium leading-none">Adreslerim</span>
         </button>
 
         <button
@@ -827,38 +914,11 @@ export default function App() {
             setMobileTab('visits');
           }}
           className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'visits' ? 'text-teal-600 font-semibold' : 'text-slate-500 hover:text-slate-700'
+            mobileTab === 'visits' ? 'text-teal-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <ClipboardList className="h-5 w-5 mb-1" />
-          <span className="text-[10px] font-medium">Rutin &amp; Eksik</span>
-        </button>
-
-        <button
-          id="mobile-tab-btn-map"
-          onClick={() => {
-            setMobileTab('map');
-          }}
-          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'map' ? 'text-emerald-600 font-semibold' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <MapIcon className="h-5 w-5 mb-1" />
-          <span className="text-[10px] font-medium">Harita</span>
-        </button>
-
-        <button
-          id="mobile-tab-btn-settings"
-          onClick={() => {
-            setActiveTab('settings');
-            setMobileTab('settings');
-          }}
-          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'settings' ? 'text-violet-600 font-semibold' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <SettingsIcon className="h-5 w-5 mb-1" />
-          <span className="text-[10px] font-medium">Ayarlar</span>
+          <ClipboardList className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-medium leading-none">Rutin &amp; Eksik</span>
         </button>
       </footer>
 
