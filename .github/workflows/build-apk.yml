@@ -1,4 +1,4 @@
-name: Build Android APK (RotaPlan Google Maps)
+name: Build Android APK (RotaPlan Yandex Navigasyon)
 
 on:
   push:
@@ -58,19 +58,21 @@ jobs:
         run: |
           mkdir -p build-output
           if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
-            cp android/app/build/outputs/apk/release/app-release.apk build-output/rotaplan-googlemaps-release.apk
+            cp android/app/build/outputs/apk/release/app-release.apk build-output/rotaplan-yandex-release.apk
+            cp android/app/build/outputs/apk/release/app-release.apk build-output/rotaplan-release.apk
           elif [ -f android/app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp android/app/build/outputs/apk/release/app-release-unsigned.apk build-output/rotaplan-googlemaps-release.apk
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk build-output/rotaplan-yandex-release.apk
+            cp android/app/build/outputs/apk/release/app-release-unsigned.apk build-output/rotaplan-release.apk
           fi
           if [ -f android/app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp android/app/build/outputs/apk/debug/app-debug.apk build-output/rotaplan-googlemaps-debug.apk
+            cp android/app/build/outputs/apk/debug/app-debug.apk build-output/rotaplan-yandex-debug.apk
           fi
           ls -la build-output/
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rotaplan-googlemaps-apk
+          name: rotaplan-yandex-apk
           path: build-output/*.apk
           retention-days: 30
 
@@ -78,25 +80,27 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.2' }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && format('RotaPlan {0} - Google Haritalar Otomatik Navigasyon', github.ref_name) || 'RotaPlan v1.0.2 - Google Haritalar Otomatik Navigasyon' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.4' }}
+          name: ${{ startsWith(github.ref, 'refs/tags/') && format('RotaPlan {0} - Yandex Navigasyon & Saha Takip', github.ref_name) || 'RotaPlan v1.0.4 - Yandex Navigasyon & Saha Takip' }}
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
-            build-output/rotaplan-googlemaps-release.apk
-            build-output/rotaplan-googlemaps-debug.apk
+            build-output/rotaplan-yandex-release.apk
+            build-output/rotaplan-release.apk
+            build-output/rotaplan-yandex-debug.apk
           body: |
-            ## 🚀 RotaPlan - Google Haritalar & Saha Takip Android APK
+            ## 🚀 RotaPlan - Yandex Navigasyon & Saha Takip Android APK
 
-            Bu sürüm ile uygulama doğrudan Android cihazınızda tam teşekküllü ve bağımsız olarak çalışır:
+            Bu sürüm ile uygulama doğrudan Android cihazınızda tam teşekküllü ve bağımsız olarak Yandex Navigasyon ile çalışır:
 
             ### ✨ Temel Özellikler
-            - **Google Haritalar Canlı Navigasyon:** Herhangi bir adrese veya durağa tıklandığında anında `google.navigation:q=lat,lng&mode=d` intent'i ile Google Haritalar açılır ve GPS sesli sürüş navigasyonu başlar.
-            - **Çoklu Durak Rotası:** "Google Haritalar'da Rotayı Başlat" butonu ile sıralı tüm duraklar tek tıkla Google Maps rota ekranına aktarılır.
-            - **%100 Çevrimdışı (Offline-First) Hafıza:** VDS sunucusuna ihtiyaç duymadan adresler, duraklar ve rotalar yerel cihaz hafızasında güvenle saklanır.
-            - **Kalıcı İmza Sertifikası (`rotaplan.keystore`):** Gelecekteki güncellemelerde "Paket çakışması" hatası yaşanmaması için sabit imzalama yapılandırıldı.
-            - **Saha Araçları:** Tek tıkla doğrudan telefon araması (`tel:`) ve WhatsApp mesajlaşma desteği.
+            - **Yandex Navigasyon Doğrudan Başlatma:** Herhangi bir adrese veya durağa tıklandığında anında `yandexnavi://build_route_on_map?lat_to={lat}&lon_to={lng}` intent'i ile Yandex Navigasyon açılır ve canlı sesli sürüş navigasyonu başlar.
+            - **Yandex Çoklu Rota:** "Tümünü Yandex'te Başlat" butonu ile sıralı tüm duraklar tek tıkla Yandex Haritalar'a aktarılır.
+            - **Kalıcı Rotalar ve Eksikler Sayfası:** Önceden tanımlı veya KML'den aktarılan 77 firma rotası, alfabetik firma rehberi ve eksikler listesi.
+            - **%100 Çevrimdışı (Offline-First) Hafıza:** Adresler, notlar ve rotalar yerel cihaz hafızasında güvenle saklanır, internet gitse bile kaybolmaz.
+            - **Kalıcı İmza Sertifikası (`rotaplan.keystore`):** Güncellemelerde paket çakışması yaşanmaz.
+            - **Koyu Tema & Güvenli Mimari:** Cihazı yormayan ultra hafif ve güvenli yapı.
 
             ---
             📲 **İndirme Bağlantısı:** Aşağıdaki `.apk` dosyasını telefonunuza indirip tek tıkla kurabilirsiniz.

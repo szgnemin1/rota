@@ -10,6 +10,7 @@ export interface SavedAddress {
   customRouteColor?: string; // User-selected color for custom routing/tagging
   phone?: string; // Telefon numarası
   contactPerson?: string; // Yetkili kişi ismi
+  note?: string; // Firma notu / eksikler
   deficiencies?: string; // Deficiencies/missing items noted
   visitInterval?: string; // e.g., 'none', '15_days', '1_month', '2_months', '3_months'
   lastVisitedDate?: string; // YYYY-MM-DD format

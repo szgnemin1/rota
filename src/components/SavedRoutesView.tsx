@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { SavedRoute, SavedAddress, RouteStop } from '../types';
-import { startGoogleMapsMultiRoute } from '../utils/navigation';
+import { startYandexMultiRoute } from '../utils/navigation';
 import { parseKMLText } from '../utils/kmlParser';
 import {
   FolderKanban, Trash2, Search, Plus, Edit2, X, UploadCloud, Play, Navigation
@@ -107,7 +107,7 @@ export default function SavedRoutesView({
           title: parsed.route.title,
           description: parsed.route.description || '',
           category: 'KML Rotaları',
-          color: '#10b981',
+          color: '#e11d48',
           stops: parsed.route.stops
         });
       }
@@ -148,7 +148,7 @@ export default function SavedRoutesView({
       title: newRouteTitle.trim(),
       description: newRouteDesc.trim() || `${stops.length} duraklı özel rota`,
       category: 'Özel Rotalar',
-      color: '#3b82f6',
+      color: '#e11d48',
       stops
     });
 
@@ -171,15 +171,15 @@ export default function SavedRoutesView({
       <div className="bg-slate-950 border-b border-slate-800/80 px-4 py-3 shrink-0 shadow-lg space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <span className="h-8 w-8 rounded-xl bg-gradient-to-br from-indigo-600 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-indigo-600/30">
-              🗺️
+            <span className="h-8 w-8 rounded-xl bg-gradient-to-br from-red-600 to-amber-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-red-600/30">
+              🧭
             </span>
             <div>
               <h2 className="text-sm font-extrabold text-white leading-tight">
                 Sabit & Kayıtlı Rotalarım
               </h2>
               <p className="text-[10px] text-slate-400 font-medium">
-                {savedRoutes.length} Kayıtlı Rota (Kalıcı Saklanır)
+                {savedRoutes.length} Kayıtlı Rota (Yandex Navigasyon Uyumlu)
               </p>
             </div>
           </div>
@@ -195,17 +195,17 @@ export default function SavedRoutesView({
             />
             <button
               onClick={() => kmlInputRef.current?.click()}
-              className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+              className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
               title="KML dosyasından yeni rota yükle"
             >
-              <UploadCloud className="h-3.5 w-3.5 text-emerald-400" />
+              <UploadCloud className="h-3.5 w-3.5 text-amber-400" />
               <span className="hidden sm:inline">KML Yükle</span>
             </button>
 
             {/* NEW ROUTE BUTTON */}
             <button
               onClick={() => setShowCreateModal(true)}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1 shadow-md shadow-indigo-600/30"
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1 shadow-md shadow-red-600/30"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>Yeni Rota</span>
@@ -214,7 +214,7 @@ export default function SavedRoutesView({
         </div>
 
         {kmlImportStatus && (
-          <div className="p-2.5 bg-emerald-950/80 border border-emerald-800/80 text-emerald-300 text-xs rounded-xl font-medium animate-pulse">
+          <div className="p-2.5 bg-red-950/80 border border-red-800/80 text-red-300 text-xs rounded-xl font-medium animate-pulse">
             {kmlImportStatus}
           </div>
         )}
@@ -227,7 +227,7 @@ export default function SavedRoutesView({
             placeholder="Rota adı veya firma ara..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:bg-slate-950 transition-all"
+            className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500 focus:bg-slate-950 transition-all"
           />
         </div>
       </div>
@@ -259,7 +259,7 @@ export default function SavedRoutesView({
                 {/* TOP TITLE ROW */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-start gap-2.5">
-                    <span className="h-8 w-8 rounded-xl bg-emerald-950 text-emerald-400 border border-emerald-800/60 flex items-center justify-center font-extrabold text-xs shrink-0 mt-0.5">
+                    <span className="h-8 w-8 rounded-xl bg-red-950 text-red-400 border border-red-800/60 flex items-center justify-center font-extrabold text-xs shrink-0 mt-0.5">
                       {route.stops.length}
                     </span>
                     <div>
@@ -269,7 +269,7 @@ export default function SavedRoutesView({
                             type="text"
                             value={editTitle}
                             onChange={(e) => setEditTitle(e.target.value)}
-                            className="text-xs font-bold px-2 py-1 bg-slate-950 border border-indigo-500 rounded-lg w-full text-white focus:outline-none"
+                            className="text-xs font-bold px-2 py-1 bg-slate-950 border border-red-500 rounded-lg w-full text-white focus:outline-none"
                           />
                           <input
                             type="text"
@@ -281,7 +281,7 @@ export default function SavedRoutesView({
                           <div className="flex gap-1.5 pt-1">
                             <button
                               onClick={() => handleSaveEdit(route.id)}
-                              className="px-2 py-1 bg-emerald-600 text-white rounded text-[10px] font-bold"
+                              className="px-2 py-1 bg-red-600 text-white rounded text-[10px] font-bold"
                             >
                               Kaydet
                             </button>
@@ -336,7 +336,7 @@ export default function SavedRoutesView({
                   </div>
                   {route.stops.slice(0, 3).map((stop, i) => (
                     <div key={stop.id} className="truncate flex items-center gap-1.5">
-                      <span className="font-extrabold text-indigo-400 text-[10px]">#{i + 1}</span>
+                      <span className="font-extrabold text-amber-400 text-[10px]">#{i + 1}</span>
                       <span className="truncate text-slate-300">{stop.label}</span>
                     </div>
                   ))}
@@ -347,25 +347,25 @@ export default function SavedRoutesView({
                   )}
                 </div>
 
-                {/* PRIMARY ACTIONS: 1-TAP START LIVE ROUTE & BULK GOOGLE MAPS */}
+                {/* PRIMARY ACTIONS: 1-TAP START LIVE ROUTE & YANDEX MULTI-STOP */}
                 <div className="flex items-center gap-2 pt-1">
                   {/* MAIN LIVE FIELD ROUTE BUTTON */}
                   <button
                     onClick={() => onStartLiveRoute(route)}
-                    className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-lg shadow-emerald-950 text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-all"
+                    className="flex-1 py-3 px-4 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-extrabold rounded-xl shadow-lg shadow-red-950 text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-all"
                   >
                     <Play className="h-4 w-4 fill-white" />
                     <span>Rotayı Başlat (Canlı Saha Modu) ➔</span>
                   </button>
 
-                  {/* BULK GOOGLE MAPS MULTI-STOP BUTTON */}
+                  {/* YANDEX MULTI-STOP BUTTON */}
                   <button
-                    onClick={() => startGoogleMapsMultiRoute(validStops)}
-                    title="Tüm Durakları Tek Rota Halinde Google Haritalar'da Aç"
-                    className="p-3 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl transition-all cursor-pointer font-bold text-xs flex items-center gap-1.5"
+                    onClick={() => startYandexMultiRoute(validStops)}
+                    title="Tüm Durakları Tek Rota Halinde Yandex Haritalar'da Aç"
+                    className="p-3 bg-slate-950 hover:bg-slate-800 text-amber-400 border border-slate-800 rounded-xl transition-all cursor-pointer font-bold text-xs flex items-center gap-1.5"
                   >
-                    <Navigation className="h-4 w-4 text-indigo-400" />
-                    <span className="hidden sm:inline">Google Çoklu Aç</span>
+                    <Navigation className="h-4 w-4 text-amber-400" />
+                    <span className="hidden sm:inline">Yandex Çoklu Aç</span>
                   </button>
                 </div>
 
@@ -398,7 +398,7 @@ export default function SavedRoutesView({
                   placeholder="Örn: Pazartesi Çarşı Rotası"
                   value={newRouteTitle}
                   onChange={(e) => setNewRouteTitle(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -409,7 +409,7 @@ export default function SavedRoutesView({
                   placeholder="Örn: Çarşı ve Hanlar bölgesi haftalık tahsilat"
                   value={newRouteDesc}
                   onChange={(e) => setNewRouteDesc(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                  className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -428,7 +428,7 @@ export default function SavedRoutesView({
                           setSelectedAddressIds(savedAddresses.map(a => a.id));
                         }
                       }}
-                      className="text-[11px] text-indigo-400 font-bold hover:underline cursor-pointer"
+                      className="text-[11px] text-amber-400 font-bold hover:underline cursor-pointer"
                     >
                       {selectedAddressIds.length === savedAddresses.length ? 'Tümünü Bırak' : 'Tümünü Seç'}
                     </button>
@@ -456,7 +456,7 @@ export default function SavedRoutesView({
                           key={addr.id}
                           onClick={() => toggleAddressSelection(addr.id)}
                           className={`p-2.5 flex items-center justify-between text-xs cursor-pointer transition-colors ${
-                            isSelected ? 'bg-indigo-950/70 font-bold text-indigo-300' : 'hover:bg-slate-900 text-slate-300'
+                            isSelected ? 'bg-red-950/70 font-bold text-red-300' : 'hover:bg-slate-900 text-slate-300'
                           }`}
                         >
                           <div className="truncate pr-2">
@@ -466,7 +466,7 @@ export default function SavedRoutesView({
                           <span
                             className={`h-4 w-4 rounded flex items-center justify-center border text-[10px] shrink-0 ${
                               isSelected
-                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                ? 'bg-red-600 text-white border-red-600'
                                 : 'border-slate-700 bg-slate-900'
                             }`}
                           >
@@ -489,7 +489,7 @@ export default function SavedRoutesView({
                 <button
                   type="submit"
                   disabled={selectedAddressIds.length === 0}
-                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white text-xs font-extrabold rounded-xl shadow-md shadow-indigo-600/30"
+                  className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 disabled:bg-slate-800 text-white text-xs font-extrabold rounded-xl shadow-md shadow-red-600/30"
                 >
                   Rotayı Kaydet ({selectedAddressIds.length} Durak)
                 </button>

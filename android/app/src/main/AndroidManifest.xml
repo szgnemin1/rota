@@ -8,8 +8,20 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
-    <!-- Queries for launching Google Maps, WhatsApp, and Phone Dialer -->
+    <!-- Queries for launching Yandex Navigator, Google Maps, WhatsApp, and Phone Dialer -->
     <queries>
+        <!-- Yandex Navigator & Yandex Maps -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="yandexnavi" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="yandexmaps" />
+        </intent>
+        <package android:name="ru.yandex.yandexnavi" />
+        <package android:name="ru.yandex.yandexmaps" />
+
         <!-- Google Maps Turn-by-Turn GPS Driving Navigation -->
         <intent>
             <action android:name="android.intent.action.VIEW" />

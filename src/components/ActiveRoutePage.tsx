@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { SavedRoute, SavedAddress, RouteStop } from '../types';
-import { startGoogleMapsNavigation, startGoogleMapsMultiRoute, callPhoneNumber, openWhatsAppChat } from '../utils/navigation';
+import { startYandexNavigation, startYandexMultiRoute, callPhoneNumber, openWhatsAppChat } from '../utils/navigation';
 import {
   ArrowLeft, Navigation, Phone, MessageSquare, CheckCircle2,
-  Circle, Edit3, Search, MapPin, Check, Save, ExternalLink
+  Circle, Edit3, Search, MapPin, Check, Save
 } from 'lucide-react';
 
 interface ActiveRoutePageProps {
@@ -26,7 +26,6 @@ export default function ActiveRoutePage({
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
   const [savedNoteNotification, setSavedNoteNotification] = useState<string | null>(null);
 
-  // Map stops to their latest saved address data (to keep notes and visited statuses in sync)
   const addressMap = new Map<string, SavedAddress>();
   savedAddresses.forEach(a => addressMap.set(a.id, a));
 
@@ -88,7 +87,7 @@ export default function ActiveRoutePage({
             <h1 className="text-sm md:text-base font-extrabold text-white truncate">
               {route.title}
             </h1>
-            <div className="flex items-center justify-center gap-2 text-[11px] text-emerald-400 font-semibold mt-0.5">
+            <div className="flex items-center justify-center gap-2 text-[11px] text-amber-400 font-semibold mt-0.5">
               <span>{visitedStops} / {totalStops} Firma Tamamlandı</span>
               <span>•</span>
               <span>%{progressPercent}</span>
@@ -96,19 +95,19 @@ export default function ActiveRoutePage({
           </div>
 
           <button
-            onClick={() => startGoogleMapsMultiRoute(route.stops)}
-            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold transition-all cursor-pointer shadow-md shadow-emerald-600/20 flex items-center gap-1.5 shrink-0"
+            onClick={() => startYandexMultiRoute(route.stops)}
+            className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-extrabold transition-all cursor-pointer shadow-md shadow-red-600/30 flex items-center gap-1.5 shrink-0"
           >
             <Navigation className="h-4 w-4 fill-white" />
-            <span className="hidden sm:inline">Tümünü Google'da Başlat</span>
-            <span className="sm:hidden">Tümü</span>
+            <span className="hidden sm:inline">Tümünü Yandex'te Başlat</span>
+            <span className="sm:hidden">Yandex Tümü</span>
           </button>
         </div>
 
         {/* PROGRESS BAR */}
         <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-3">
           <div
-            className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+            className="bg-amber-500 h-full rounded-full transition-all duration-300"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -122,7 +121,7 @@ export default function ActiveRoutePage({
               placeholder="Firma veya adres ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
             />
           </div>
 
@@ -130,7 +129,7 @@ export default function ActiveRoutePage({
             <button
               onClick={() => setFilterMode('all')}
               className={`px-2.5 py-1.5 rounded-lg transition-all ${
-                filterMode === 'all' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                filterMode === 'all' ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
               Tümü ({totalStops})
@@ -183,7 +182,7 @@ export default function ActiveRoutePage({
                       className={`h-7 w-7 rounded-xl flex items-center justify-center font-extrabold text-xs shrink-0 ${
                         stop.visited
                           ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
-                          : 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                          : 'bg-red-600 text-white shadow-md shadow-red-600/30'
                       }`}
                     >
                       {stop.orderNumber}
@@ -220,15 +219,15 @@ export default function ActiveRoutePage({
                   </button>
                 </div>
 
-                {/* PRIMARY ACTIONS: GOOGLE MAPS + PHONE + WHATSAPP */}
+                {/* PRIMARY ACTIONS: YANDEX NAVIGATOR + PHONE + WHATSAPP */}
                 <div className="mt-4 flex flex-wrap items-center gap-2">
-                  {/* HERO GOOGLE MAPS LAUNCH BUTTON */}
+                  {/* HERO YANDEX NAVIGATOR LAUNCH BUTTON */}
                   <button
-                    onClick={() => startGoogleMapsNavigation(stop.lat, stop.lng, stop.label, stop.address)}
-                    className="flex-1 py-3 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold rounded-xl shadow-lg shadow-emerald-900/40 text-xs md:text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-all"
+                    onClick={() => startYandexNavigation(stop.lat, stop.lng, stop.label, stop.address)}
+                    className="flex-1 py-3 px-4 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-extrabold rounded-xl shadow-lg shadow-red-950 text-xs md:text-sm flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-all"
                   >
                     <Navigation className="h-4 w-4 fill-white" />
-                    <span>Google Haritalar'da Başlat ➔</span>
+                    <span>Yandex Navigasyon'da Başlat ➔</span>
                   </button>
 
                   {/* Direct Phone Call */}
@@ -258,7 +257,7 @@ export default function ActiveRoutePage({
                 <div className="mt-3 pt-3 border-t border-slate-800/60">
                   <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 mb-1.5">
                     <span className="flex items-center gap-1.5">
-                      <Edit3 className="h-3 w-3 text-indigo-400" />
+                      <Edit3 className="h-3 w-3 text-red-400" />
                       Firma Notu / Eksikler Listesi:
                     </span>
                     {isNoteSaved && (
@@ -279,11 +278,11 @@ export default function ActiveRoutePage({
                           handleSaveNote(stop.id, currentNote);
                         }
                       }}
-                      className="flex-1 bg-slate-900 text-white placeholder-slate-600 px-3 py-2 rounded-xl border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-xs outline-none"
+                      className="flex-1 bg-slate-900 text-white placeholder-slate-600 px-3 py-2 rounded-xl border border-slate-800 focus:border-red-500 focus:ring-1 focus:ring-red-500 text-xs outline-none"
                     />
                     <button
                       onClick={() => handleSaveNote(stop.id, currentNote)}
-                      className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                      className="px-3 py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs flex items-center gap-1 transition-all cursor-pointer shadow-sm"
                     >
                       <Save className="h-3.5 w-3.5" />
                       <span>Kaydet</span>

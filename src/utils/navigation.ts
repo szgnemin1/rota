@@ -1,6 +1,6 @@
 /**
- * Google Maps Direct Navigation & URL Utilities
- * Specifically engineered for mobile phone field navigation.
+ * Yandex & Google Navigation Utilities
+ * Primary focus: 1-Tap Yandex Navigator & Yandex Maps integration.
  */
 
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -27,17 +27,17 @@ export async function triggerHaptic(style: 'light' | 'medium' | 'heavy' = 'light
 }
 
 /**
- * Directly launches Google Maps Turn-by-Turn GPS Navigation for a single stop.
- * On Android, uses native intent "google.navigation:q=lat,lng&mode=d" to immediately
- * start driving directions with voice guidance!
+ * Directly launches Yandex Navigator for a single stop.
+ * On Android / iOS, uses native intent "yandexnavi://build_route_on_map?lat_to=...&lon_to=..."
+ * with fallback to Yandex Maps universal web / app routing.
  */
-export function startGoogleMapsNavigation(lat: number, lng: number, label?: string, address?: string) {
+export function startYandexNavigation(lat: number, lng: number, label?: string, address?: string) {
   triggerHaptic('heavy');
 
   if (!lat || !lng || isNaN(lat) || isNaN(lng)) {
     if (address || label) {
       const q = encodeURIComponent((label ? `${label}, ` : '') + (address || ''));
-      const universalUrl = `https://www.google.com/maps/dir/?api=1&destination=${q}&travelmode=driving`;
+      const universalUrl = `https://yandex.com.tr/maps/?text=${q}&rtt=auto`;
       window.open(universalUrl, '_system');
       return;
     }
@@ -46,116 +46,131 @@ export function startGoogleMapsNavigation(lat: number, lng: number, label?: stri
   }
 
   const isAndroid = /android/i.test(navigator.userAgent);
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  // 1. Primary: Yandex Navigator intent
+  const yandexNaviIntent = `yandexnavi://build_route_on_map?lat_to=${lat}&lon_to=${lng}`;
+  // 2. Secondary fallback: Yandex Maps web or app
+  const yandexMapsWebUrl = `https://yandex.com.tr/maps/?rtext=~${lat},${lng}&rtt=auto`;
 
   if (isAndroid) {
-    // Android Native Turn-by-Turn Navigation Intent:
-    // google.navigation:q=latitude,longitude&mode=d (d = driving, w = walking, b = bicycling)
-    const nativeIntentUri = `google.navigation:q=${lat},${lng}&mode=d`;
-    
-    // Try native intent directly
     try {
-      window.location.href = nativeIntentUri;
+      window.location.href = yandexNaviIntent;
     } catch (e) {
-      // Fallback
-      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-      window.open(fallbackUrl, '_system');
+      window.open(yandexMapsWebUrl, '_system');
     }
 
-    // Safety fallback: if app does not switch within 750ms, open universal web intent
+    // Safety fallback timer if app switch doesn't take focus
     setTimeout(() => {
-      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-      window.open(fallbackUrl, '_system');
-    }, 750);
+      window.open(yandexMapsWebUrl, '_system');
+    }, 600);
+  } else if (isIOS) {
+    window.location.href = yandexNaviIntent;
+    setTimeout(() => {
+      window.open(yandexMapsWebUrl, '_system');
+    }, 600);
   } else {
-    // iOS (Apple Devices) or Mobile Web:
-    // Opens Google Maps app if installed, or web directions
-    const universalUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
-    window.open(universalUrl, '_system');
+    // Desktop Web browser
+    window.open(yandexMapsWebUrl, '_blank');
   }
 }
 
 /**
- * Builds a multi-stop route link for Google Maps.
- * Google Maps allows up to 10 stops (origin + destination + 8 waypoints).
+ * Builds and launches a multi-stop route in Yandex Maps.
+ * Yandex natively supports unlimited stops separated by '~':
+ * rtext=lat1,lng1~lat2,lng2~lat3,lng3...&rtt=auto
  */
-export function getGoogleMapsRouteUrl(
-  stops: LatLngPoint[],
-  origin?: LatLngPoint | null,
-  travelMode: 'driving' | 'walking' | 'bicycling' = 'driving'
-): string {
+export function startYandexMultiRoute(stops: LatLngPoint[], origin?: LatLngPoint | null) {
+  triggerHaptic('medium');
   const validStops = stops.filter(s => s.lat !== 0 && s.lng !== 0 && !isNaN(s.lat) && !isNaN(s.lng));
-  if (validStops.length === 0) return '';
-
-  if (validStops.length === 1 && !origin) {
-    return `https://www.google.com/maps/dir/?api=1&destination=${validStops[0].lat},${validStops[0].lng}&travelmode=${travelMode}`;
-  }
-
-  // Destination is the final stop
-  const destination = validStops[validStops.length - 1];
-  
-  // Waypoints are intermediate stops
-  const intermediateStops = validStops.slice(0, validStops.length - 1);
-  const waypoints = intermediateStops.map(s => `${s.lat},${s.lng}`).join('|');
-
-  let url = `https://www.google.com/maps/dir/?api=1&destination=${destination.lat},${destination.lng}&travelmode=${travelMode}`;
-
-  if (origin && origin.lat && origin.lng) {
-    url += `&origin=${origin.lat},${origin.lng}`;
-  }
-
-  if (waypoints) {
-    url += `&waypoints=${encodeURIComponent(waypoints)}`;
-  }
-
-  return url;
-}
-
-/**
- * Launches the full multi-stop route directly in Google Maps.
- */
-export function startGoogleMapsMultiRoute(
-  stops: LatLngPoint[],
-  origin?: LatLngPoint | null,
-  travelMode: 'driving' | 'walking' | 'bicycling' = 'driving'
-) {
-  triggerHaptic('heavy');
-  const url = getGoogleMapsRouteUrl(stops, origin, travelMode);
-  if (!url) {
-    alert('Rotada geçerli durak bulunamadı.');
+  if (validStops.length === 0) {
+    alert('Rotada geçerli koordinatı olan durak bulunamadı.');
     return;
   }
-  window.open(url, '_system');
+
+  const pointsList: string[] = [];
+  if (origin && origin.lat && origin.lng) {
+    pointsList.push(`${origin.lat},${origin.lng}`);
+  }
+  validStops.forEach(s => {
+    pointsList.push(`${s.lat},${s.lng}`);
+  });
+
+  const points = pointsList.join('~');
+  const yandexMapsWebUrl = `https://yandex.com.tr/maps/?rtext=${points}&rtt=auto`;
+  const yandexMapsIntent = `yandexmaps://maps.yandex.ru/?rtext=${points}&rtt=auto`;
+
+  const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (isMobile) {
+    try {
+      window.location.href = yandexMapsIntent;
+    } catch (e) {
+      window.open(yandexMapsWebUrl, '_system');
+    }
+    setTimeout(() => {
+      window.open(yandexMapsWebUrl, '_system');
+    }, 600);
+  } else {
+    window.open(yandexMapsWebUrl, '_blank');
+  }
 }
 
 /**
- * Directly dials customer phone number
+ * Generates Yandex multi-stop route URL
+ */
+export function getYandexMapsRouteUrl(stops: LatLngPoint[], origin?: LatLngPoint | null): string {
+  const validStops = stops.filter(s => s.lat !== 0 && s.lng !== 0 && !isNaN(s.lat) && !isNaN(s.lng));
+  const pointsList: string[] = [];
+  if (origin && origin.lat && origin.lng) {
+    pointsList.push(`${origin.lat},${origin.lng}`);
+  }
+  validStops.forEach(s => {
+    pointsList.push(`${s.lat},${s.lng}`);
+  });
+  return `https://yandex.com.tr/maps/?rtext=${pointsList.join('~')}&rtt=auto`;
+}
+
+/**
+ * Google Maps Navigation as fallback option if needed
+ */
+export function getGoogleMapsRouteUrl(stops: LatLngPoint[], origin?: LatLngPoint | null, travelMode: string = 'driving'): string {
+  return getYandexMapsRouteUrl(stops, origin);
+}
+
+export function startGoogleMapsNavigation(lat: number, lng: number, label?: string, address?: string) {
+  startYandexNavigation(lat, lng, label, address);
+}
+
+export function startGoogleMapsMultiRoute(stops: LatLngPoint[], origin?: LatLngPoint | null) {
+  startYandexMultiRoute(stops, origin);
+}
+
+/**
+ * Direct phone dialer
  */
 export function callPhoneNumber(phone: string) {
-  triggerHaptic('light');
   if (!phone) return;
-  const clean = phone.replace(/[^0-9+]/g, '');
-  window.location.href = `tel:${clean}`;
+  const cleanPhone = phone.replace(/[^0-9+]/g, '');
+  window.open(`tel:${cleanPhone}`, '_system');
 }
 
 /**
- * Directly opens WhatsApp chat with custom greeting
+ * Direct WhatsApp chat opener
  */
 export function openWhatsAppChat(phone: string, stopName?: string) {
-  triggerHaptic('light');
   if (!phone) return;
-  let clean = phone.replace(/[^0-9]/g, '');
-  if (clean.startsWith('0')) {
-    clean = '90' + clean.slice(1);
-  } else if (!clean.startsWith('90') && clean.length === 10) {
-    clean = '90' + clean;
+  let cleanPhone = phone.replace(/[^0-9]/g, '');
+  if (cleanPhone.startsWith('0')) {
+    cleanPhone = '90' + cleanPhone.slice(1);
+  } else if (!cleanPhone.startsWith('90') && cleanPhone.length === 10) {
+    cleanPhone = '90' + cleanPhone;
   }
-  
-  const greeting = stopName
-    ? `Merhaba ${stopName}, rota ziyaretimiz kapsamında iletişime geçiyorum.`
-    : 'Merhaba, rota ziyareti için iletişime geçiyorum.';
-    
-  const url = `https://wa.me/${clean}?text=${encodeURIComponent(greeting)}`;
-  window.open(url, '_blank');
+
+  const text = encodeURIComponent(
+    `Merhaba ${stopName ? stopName + ' yetkilisi' : ''}, RotaPlan üzerinden ulaşıyorum.`
+  );
+  const waUrl = `https://wa.me/${cleanPhone}?text=${text}`;
+  window.open(waUrl, '_system');
 }
 
 /**
@@ -163,8 +178,8 @@ export function openWhatsAppChat(phone: string, stopName?: string) {
  * Matches:
  * - "40.1826, 29.0660"
  * - "40.1826 29.0660"
- * - Google maps URLs with "@40.1826,29.0660"
- * - "q=40.1826,29.0660"
+ * - Maps URLs with "@40.1826,29.0660"
+ * - "q=40.1826,29.0660" or "ll=40.1826,29.0660"
  */
 export function extractCoordinates(input: string): { lat: number; lng: number } | null {
   if (!input) return null;
@@ -180,7 +195,7 @@ export function extractCoordinates(input: string): { lat: number; lng: number } 
     }
   }
 
-  // Pattern 2: Google Maps @lat,lng
+  // Pattern 2: Maps @lat,lng
   const atMatch = trimmed.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
   if (atMatch) {
     const lat = parseFloat(atMatch[1]);
@@ -188,8 +203,8 @@ export function extractCoordinates(input: string): { lat: number; lng: number } 
     return { lat, lng };
   }
 
-  // Pattern 3: query=lat,lng or q=lat,lng or destination=lat,lng
-  const queryMatch = trimmed.match(/[?&](?:q|query|destination)=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
+  // Pattern 3: query=lat,lng or q=lat,lng or destination=lat,lng or ll=lat,lng
+  const queryMatch = trimmed.match(/[?&](?:q|query|destination|ll)=(-?\d+\.\d+)(?:%2C|,)(-?\d+\.\d+)/i);
   if (queryMatch) {
     const lat = parseFloat(queryMatch[1]);
     const lng = parseFloat(queryMatch[2]);

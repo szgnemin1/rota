@@ -46,8 +46,8 @@ export default function App() {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
             setSavedAddresses(prev => {
-              const localMap = new Map(prev.map(a => [a.id, a]));
-              const merged = data.map((serverAddr: SavedAddress) => {
+              const localMap = new Map<string, SavedAddress>(prev.map(a => [a.id, a]));
+              const merged = (data as SavedAddress[]).map((serverAddr: SavedAddress) => {
                 const local = localMap.get(serverAddr.id);
                 return local ? { ...serverAddr, note: local.note || serverAddr.note, visited: local.visited ?? serverAddr.visited } : serverAddr;
               });
@@ -216,8 +216,8 @@ export default function App() {
             <div>
               <div className="flex items-center gap-1.5">
                 <h1 className="font-extrabold text-white tracking-tight text-sm">RotaPlan</h1>
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 font-bold flex items-center gap-0.5">
-                  <Zap className="h-2.5 w-2.5 text-emerald-400 fill-emerald-400" /> Google Maps
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-950/80 border border-red-800/60 text-red-400 font-bold flex items-center gap-0.5">
+                  <Zap className="h-2.5 w-2.5 text-red-400 fill-red-400" /> Yandex Navigasyon
                 </span>
               </div>
               <p className="text-[10px] text-slate-400 font-medium">Saha Takip & Navigasyon</p>

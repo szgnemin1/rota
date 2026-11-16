@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SavedAddress, RouteStop } from '../types';
-import { startGoogleMapsNavigation, callPhoneNumber, openWhatsAppChat } from '../utils/navigation';
+import { startYandexNavigation, callPhoneNumber, openWhatsAppChat } from '../utils/navigation';
 import {
   ClipboardList, Search, CheckCircle2, Circle, Save, Navigation,
   Phone, MessageSquare, Edit3, ArrowDownAZ, Check, MapPin
@@ -227,14 +227,14 @@ export default function VisitsAndDeficiencies({
                   </button>
                 </div>
 
-                {/* ACTION BUTTONS (GOOGLE MAPS + PHONE + WHATSAPP) */}
+                {/* ACTION BUTTONS (YANDEX NAVIGATOR + PHONE + WHATSAPP) */}
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <button
-                    onClick={() => startGoogleMapsNavigation(addr.lat, addr.lng, addr.label, addr.address)}
-                    className="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-xs text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
+                    onClick={() => startYandexNavigation(addr.lat, addr.lng, addr.label, addr.address)}
+                    className="flex-1 py-2.5 px-3 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-extrabold rounded-xl shadow-xs text-xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.98]"
                   >
                     <Navigation className="h-3.5 w-3.5 fill-white" />
-                    <span>Google Haritalar'da Başlat ➔</span>
+                    <span>Yandex'te Başlat ➔</span>
                   </button>
 
                   {addr.phone && (
