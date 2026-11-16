@@ -53,27 +53,76 @@
     ]
   },
   "latest": {
-    "id": "3",
-    "title": "Bursa Nilüfer & Osmangazi Saha Rotası",
+    "id": "active",
+    "title": "Saha Rotası (3 Firma)",
     "createdAt": "2026-11-06T10:09:14.778Z",
-    "updatedAt": "2026-11-06T10:09:14.778Z",
+    "updatedAt": "2026-11-16T12:36:23.085Z",
     "stops": [
       {
-        "id": "f1",
-        "label": "Bursa Test Makina",
-        "address": "Nilüfer, Bursa",
-        "lat": 40.21,
-        "lng": 28.95,
-        "phone": "05551112233",
-        "contactPerson": "Ahmet Bey"
+        "id": "origin",
+        "label": "Mevcut Konumunuz",
+        "address": "Üçevler Mahallesi, Nilüfer, Bursa, Marmara Bölgesi, 16110, Türkiye",
+        "lat": 40.202001072950026,
+        "lng": 28.952867569668392
       },
       {
-        "id": "f2",
-        "label": "Otomotiv Sanayi",
-        "address": "Osmangazi, Bursa",
-        "lat": 40.19,
-        "lng": 29.07,
-        "phone": "05554445566"
+        "id": "addr-2",
+        "label": "Nilüfer Organize Sanayi (NOSAB)",
+        "address": "Minareliçavuş OSB Mah. Dökümcüler Sitesi, Nilüfer/Bursa",
+        "lat": 40.231,
+        "lng": 28.928,
+        "phone": "02244111222",
+        "contactPerson": "Ali Usta",
+        "note": "Yedek parça teslimatı",
+        "visited": false
+      },
+      {
+        "id": "addr-3",
+        "label": "Bursa Toptancılar Sitesi (BUTTİM)",
+        "address": "Altınova Mah. Fuar Cad. BUTTİM İş Merkezi, Osmangazi/Bursa",
+        "lat": 40.2285,
+        "lng": 29.0578,
+        "phone": "05321112233",
+        "contactPerson": "Ahmet Karaca",
+        "note": "Katalog ve numune bırakılacak",
+        "visited": false
+      }
+    ]
+  },
+  "active": {
+    "id": "active",
+    "title": "Saha Rotası (3 Firma)",
+    "createdAt": "2026-11-06T10:09:14.778Z",
+    "updatedAt": "2026-11-16T12:36:23.085Z",
+    "stops": [
+      {
+        "id": "origin",
+        "label": "Mevcut Konumunuz",
+        "address": "Üçevler Mahallesi, Nilüfer, Bursa, Marmara Bölgesi, 16110, Türkiye",
+        "lat": 40.202001072950026,
+        "lng": 28.952867569668392
+      },
+      {
+        "id": "addr-2",
+        "label": "Nilüfer Organize Sanayi (NOSAB)",
+        "address": "Minareliçavuş OSB Mah. Dökümcüler Sitesi, Nilüfer/Bursa",
+        "lat": 40.231,
+        "lng": 28.928,
+        "phone": "02244111222",
+        "contactPerson": "Ali Usta",
+        "note": "Yedek parça teslimatı",
+        "visited": false
+      },
+      {
+        "id": "addr-3",
+        "label": "Bursa Toptancılar Sitesi (BUTTİM)",
+        "address": "Altınova Mah. Fuar Cad. BUTTİM İş Merkezi, Osmangazi/Bursa",
+        "lat": 40.2285,
+        "lng": 29.0578,
+        "phone": "05321112233",
+        "contactPerson": "Ahmet Karaca",
+        "note": "Katalog ve numune bırakılacak",
+        "visited": false
       }
     ]
   }

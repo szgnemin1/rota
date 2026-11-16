@@ -3,7 +3,6 @@ import http from "http";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { exec } from "child_process";
 import { createServer as createViteServer } from "vite";
 
 async function startServer() {
@@ -61,25 +60,8 @@ async function startServer() {
     next();
   };
 
-  // Auth Middleware for API Protection
+  // Auth Middleware - Password removed as requested (Direct open access)
   const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const token = req.headers["x-app-token"] as string;
-
-    if (!token) {
-      res.status(401).json({ error: "Giriş yapılması gerekiyor." });
-      return;
-    }
-
-    const expiry = activeSessions.get(token);
-    if (!expiry || expiry < Date.now()) {
-      // Clean up expired session
-      activeSessions.delete(token);
-      res.status(401).json({ error: "Oturum süreniz doldu. Lütfen tekrar giriş yapın." });
-      return;
-    }
-
-    // Refresh session expiry on active request (sliding expiration, 12 hours)
-    activeSessions.set(token, Date.now() + 12 * 60 * 60 * 1000);
     next();
   };
 
@@ -629,33 +611,10 @@ async function startServer() {
     }
   });
   app.post("/api/update-app", authenticateToken, (req, res) => {
-    const updateScript = path.join(process.cwd(), "update.sh");
-
-    if (!fs.existsSync(updateScript)) {
-      res.status(404).json({ error: "Güncelleme betiği (update.sh) sunucuda bulunamadı." });
-      return;
-    }
-
-    console.log("Starting remote application update execution...");
-    
-    // Execute update script asynchronously
-    exec(`bash "${updateScript}"`, (error, stdout, stderr) => {
-      if (error) {
-        console.error("Update execution failed:", error);
-        res.status(500).json({
-          success: false,
-          error: "Güncelleme işlemi hata ile sonuçlandı.",
-          log: stdout + "\n" + stderr + "\n" + error.message
-        });
-        return;
-      }
-
-      console.log("Update executed successfully!");
-      res.json({
-        success: true,
-        message: "Güncelleme başarıyla tetiklendi ve tamamlandı!",
-        log: stdout + (stderr ? "\n\nHatalar/Uyarılar:\n" + stderr : "")
-      });
+    res.json({
+      success: true,
+      message: "Yerel çalışma ortamı aktif.",
+      log: "Sistem güncel ve yerel modda çalışıyor."
     });
   });
 

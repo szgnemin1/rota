@@ -1,49 +1,59 @@
-import React, { useState } from 'react';
-import { SavedRoute, RouteStop } from '../types';
+import React, { useState, useRef } from 'react';
+import { SavedRoute, SavedAddress, RouteStop } from '../types';
+import { startGoogleMapsMultiRoute } from '../utils/navigation';
+import { parseKMLText } from '../utils/kmlParser';
 import {
-  FolderKanban, MapPin, Navigation, Trash2, Calendar, Share2,
-  Clock, CheckSquare, Search, Plus, ExternalLink, QrCode,
-  FileText, Edit2, Check, X, ArrowRight, Sparkles, RefreshCw
+  FolderKanban, Trash2, Search, Plus, Edit2, X, UploadCloud, Play, Navigation
 } from 'lucide-react';
 
 interface SavedRoutesViewProps {
   savedRoutes: SavedRoute[];
-  onLoadRoute: (route: SavedRoute, targetTab?: 'route' | 'field') => void;
+  savedAddresses: SavedAddress[];
+  onStartLiveRoute: (route: SavedRoute) => void;
+  onSaveRoute: (route: {
+    title: string;
+    description: string;
+    category: string;
+    color: string;
+    stops: RouteStop[];
+  }) => Promise<void>;
   onDeleteRoute: (id: string) => Promise<void>;
   onUpdateRoute?: (id: string, updates: Partial<SavedRoute>) => Promise<void>;
-  onNavigateToTab?: (tab: 'route' | 'field' | 'map') => void;
-  onOpenShareModal?: (stops: RouteStop[], title: string) => void;
+  onAddAddressesBulk?: (addresses: SavedAddress[]) => Promise<void>;
 }
 
 export default function SavedRoutesView({
   savedRoutes,
-  onLoadRoute,
+  savedAddresses,
+  onStartLiveRoute,
+  onSaveRoute,
   onDeleteRoute,
   onUpdateRoute,
-  onNavigateToTab,
-  onOpenShareModal
+  onAddAddressesBulk
 }: SavedRoutesViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
 
-  // Categories
-  const categories = Array.from(new Set(savedRoutes.map(r => r.category || 'Genel'))).filter(Boolean);
+  // New Route Modal State
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newRouteTitle, setNewRouteTitle] = useState('');
+  const [newRouteDesc, setNewRouteDesc] = useState('');
+  const [selectedAddressIds, setSelectedAddressIds] = useState<string[]>([]);
+  const [addressSearchInModal, setAddressSearchInModal] = useState('');
 
-  // Filter routes
+  // KML File Input Ref
+  const kmlInputRef = useRef<HTMLInputElement>(null);
+  const [kmlImportStatus, setKmlImportStatus] = useState<string | null>(null);
+
   const filteredRoutes = savedRoutes.filter(route => {
-    const matchesSearch =
+    return (
       route.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (route.description && route.description.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      route.stops.some(s => s.label?.toLowerCase().includes(searchQuery.toLowerCase()) || s.address?.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    const matchesCategory =
-      selectedCategory === 'all' || (route.category || 'Genel') === selectedCategory;
-
-    return matchesSearch && matchesCategory;
+      route.stops.some(s => s.label?.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
   });
 
   const handleStartEdit = (route: SavedRoute) => {
@@ -73,325 +83,422 @@ export default function SavedRoutesView({
     }
   };
 
-  // Generate full Yandex Maps link for this saved route
-  const getYandexUrlForRoute = (stops: RouteStop[]) => {
-    const valid = stops.filter(s => s.lat !== 0 && s.lng !== 0);
-    if (valid.length === 0) return '';
-    const points = valid.map(s => `${s.lat},${s.lng}`).join('~');
-    return `https://yandex.com.tr/maps/?rtext=${points}&rtt=auto`;
+  const handleKmlFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setKmlImportStatus('KML dosyası işleniyor...');
+      const text = await file.text();
+      const parsed = parseKMLText(text, file.name.replace(/\.[^/.]+$/, ''));
+
+      if (parsed.addresses.length === 0) {
+        alert('Seçilen KML dosyasında konum bulunamadı.');
+        setKmlImportStatus(null);
+        return;
+      }
+
+      if (onAddAddressesBulk) {
+        await onAddAddressesBulk(parsed.addresses);
+      }
+
+      if (parsed.route) {
+        await onSaveRoute({
+          title: parsed.route.title,
+          description: parsed.route.description || '',
+          category: 'KML Rotaları',
+          color: '#10b981',
+          stops: parsed.route.stops
+        });
+      }
+
+      setKmlImportStatus(`✓ Başarılı: ${parsed.addresses.length} konum ve rota eklendi!`);
+      setTimeout(() => setKmlImportStatus(null), 3500);
+    } catch (err: any) {
+      alert('KML dosyası okunurken hata oluştu: ' + err.message);
+      setKmlImportStatus(null);
+    } finally {
+      if (kmlInputRef.current) kmlInputRef.current.value = '';
+    }
+  };
+
+  const handleCreateRouteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRouteTitle.trim()) return;
+    if (selectedAddressIds.length === 0) {
+      alert('Lütfen en az bir durak seçin.');
+      return;
+    }
+
+    const stops: RouteStop[] = selectedAddressIds
+      .map(id => savedAddresses.find(a => a.id === id))
+      .filter((a): a is SavedAddress => a !== undefined)
+      .map(a => ({
+        id: a.id,
+        label: a.label,
+        address: a.address,
+        lat: a.lat,
+        lng: a.lng,
+        phone: a.phone || '',
+        note: a.note || '',
+        visited: false
+      }));
+
+    await onSaveRoute({
+      title: newRouteTitle.trim(),
+      description: newRouteDesc.trim() || `${stops.length} duraklı özel rota`,
+      category: 'Özel Rotalar',
+      color: '#3b82f6',
+      stops
+    });
+
+    setNewRouteTitle('');
+    setNewRouteDesc('');
+    setSelectedAddressIds([]);
+    setShowCreateModal(false);
+  };
+
+  const toggleAddressSelection = (id: string) => {
+    setSelectedAddressIds(prev =>
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-slate-50 overflow-hidden select-none">
-      {/* Header Bar */}
-      <div className="bg-white border-b border-slate-200 px-4 py-3 shrink-0 shadow-xs space-y-2.5">
+    <div className="flex-1 flex flex-col h-full bg-slate-950 text-slate-100 overflow-hidden select-none font-sans">
+      
+      {/* HEADER BAR (DARK) */}
+      <div className="bg-slate-950 border-b border-slate-800/80 px-4 py-3 shrink-0 shadow-lg space-y-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="h-7 w-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-              📁
+          <div className="flex items-center gap-2.5">
+            <span className="h-8 w-8 rounded-xl bg-gradient-to-br from-indigo-600 to-emerald-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-indigo-600/30">
+              🗺️
             </span>
             <div>
-              <h2 className="text-sm font-extrabold text-slate-900 leading-tight">
-                Kayıtlı Rotalarım
+              <h2 className="text-sm font-extrabold text-white leading-tight">
+                Sabit & Kayıtlı Rotalarım
               </h2>
-              <p className="text-[10px] text-slate-500 font-medium">
-                {savedRoutes.length} Kayıtlı Rota Şablonu
+              <p className="text-[10px] text-slate-400 font-medium">
+                {savedRoutes.length} Kayıtlı Rota (Kalıcı Saklanır)
               </p>
             </div>
           </div>
 
-          {onNavigateToTab && (
+          <div className="flex items-center gap-2">
+            {/* KML UPLOAD BUTTON */}
+            <input
+              type="file"
+              ref={kmlInputRef}
+              onChange={handleKmlFileUpload}
+              accept=".kml,.kmz,application/vnd.google-earth.kml+xml"
+              className="hidden"
+            />
             <button
-              type="button"
-              onClick={() => onNavigateToTab('route')}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer active:scale-95"
+              onClick={() => kmlInputRef.current?.click()}
+              className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-xs"
+              title="KML dosyasından yeni rota yükle"
+            >
+              <UploadCloud className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">KML Yükle</span>
+            </button>
+
+            {/* NEW ROUTE BUTTON */}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1 shadow-md shadow-indigo-600/30"
             >
               <Plus className="h-3.5 w-3.5" />
-              <span>Yeni Rota Planla</span>
+              <span>Yeni Rota</span>
             </button>
-          )}
+          </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Rota adı, firma adı veya açıklama ile ara..."
-            className="w-full pl-8 pr-3 py-1.5 bg-slate-100 hover:bg-slate-200/60 focus:bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/30 transition-all font-medium"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Category Pills */}
-        {categories.length > 1 && (
-          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none">
-            <button
-              type="button"
-              onClick={() => setSelectedCategory('all')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-all cursor-pointer ${
-                selectedCategory === 'all'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Tümü ({savedRoutes.length})
-            </button>
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold shrink-0 transition-all cursor-pointer ${
-                  selectedCategory === cat
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+        {kmlImportStatus && (
+          <div className="p-2.5 bg-emerald-950/80 border border-emerald-800/80 text-emerald-300 text-xs rounded-xl font-medium animate-pulse">
+            {kmlImportStatus}
           </div>
         )}
+
+        {/* SEARCH BAR (DARK) */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Rota adı veya firma ara..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:bg-slate-950 transition-all"
+          />
+        </div>
       </div>
 
-      {/* Routes List Container */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* ROUTES LIST (DARK) */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
         {filteredRoutes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-8 text-center min-h-[350px]">
-            <div className="h-16 w-16 bg-indigo-50 text-indigo-600 rounded-3xl flex items-center justify-center mb-3 shadow-xs border border-indigo-100">
-              <FolderKanban className="h-8 w-8" />
+          <div className="flex flex-col items-center justify-center h-64 text-center p-6 text-slate-500 space-y-3">
+            <div className="h-12 w-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400">
+              <FolderKanban className="h-6 w-6" />
             </div>
-            <h3 className="text-sm font-extrabold text-slate-800 mb-1">
-              {searchQuery ? "Aramanıza Uygun Rota Bulunamadı" : "Henüz Kayıtlı Rota Yok"}
-            </h3>
-            <p className="text-xs text-slate-500 max-w-xs mb-4 leading-relaxed">
-              {searchQuery
-                ? "Farklı bir arama terimi deneyin veya filtreleri temizleyin."
-                : "Planladığınız rotaları tek tıkla kaydetmek için Rota Planlayıcı'daki 'Rotayı Kaydet' butonunu kullanabilirsiniz."}
-            </p>
-            {onNavigateToTab && (
-              <button
-                type="button"
-                onClick={() => onNavigateToTab('route')}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer active:scale-95"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Hemen Rota Oluştur</span>
-              </button>
-            )}
+            <div>
+              <p className="text-xs font-bold text-slate-300">Henüz Rota Bulunamadı</p>
+              <p className="text-[11px] text-slate-500 max-w-xs mt-1">
+                Yukarıdaki "Yeni Rota" veya "KML Yükle" butonuyla ilk sabit rotanızı oluşturabilirsiniz.
+              </p>
+            </div>
           </div>
         ) : (
-          filteredRoutes.map((route, idx) => {
-            const validStops = route.stops.filter(s => s.lat !== 0 && s.lng !== 0);
+          filteredRoutes.map((route) => {
             const isEditing = editingRouteId === route.id;
-            const yandexUrl = getYandexUrlForRoute(route.stops);
-            const dateStr = route.createdAt
-              ? new Date(route.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-              : '';
+            const validStops = route.stops.filter(s => s.lat !== 0 && s.lng !== 0);
 
             return (
               <div
                 key={route.id}
-                className="bg-white rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all overflow-hidden space-y-2.5 p-3.5"
+                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-4 shadow-lg transition-all space-y-3.5"
               >
-                {/* Header: Title & Badges */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    {isEditing ? (
-                      <div className="space-y-1.5">
-                        <input
-                          type="text"
-                          value={editTitle}
-                          onChange={(e) => setEditTitle(e.target.value)}
-                          className="w-full px-2.5 py-1 text-xs font-bold border border-indigo-400 rounded-lg focus:outline-hidden"
-                          placeholder="Rota Başlığı"
-                          autoFocus
-                        />
-                        <input
-                          type="text"
-                          value={editDesc}
-                          onChange={(e) => setEditDesc(e.target.value)}
-                          className="w-full px-2.5 py-1 text-[11px] border border-slate-300 rounded-lg focus:outline-hidden"
-                          placeholder="Açıklama (isteğe bağlı)"
-                        />
-                        <div className="flex items-center gap-1.5 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => handleSaveEdit(route.id)}
-                            className="px-2.5 py-1 bg-emerald-600 text-white text-[10px] font-bold rounded-md flex items-center gap-1 cursor-pointer"
-                          >
-                            <Check className="h-3 w-3" />
-                            <span>Kaydet</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingRouteId(null)}
-                            className="px-2 py-1 bg-slate-200 text-slate-700 text-[10px] font-bold rounded-md cursor-pointer"
-                          >
-                            İptal
-                          </button>
+                {/* TOP TITLE ROW */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2.5">
+                    <span className="h-8 w-8 rounded-xl bg-emerald-950 text-emerald-400 border border-emerald-800/60 flex items-center justify-center font-extrabold text-xs shrink-0 mt-0.5">
+                      {route.stops.length}
+                    </span>
+                    <div>
+                      {isEditing ? (
+                        <div className="space-y-1.5">
+                          <input
+                            type="text"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            className="text-xs font-bold px-2 py-1 bg-slate-950 border border-indigo-500 rounded-lg w-full text-white focus:outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={editDesc}
+                            onChange={(e) => setEditDesc(e.target.value)}
+                            placeholder="Açıklama"
+                            className="text-[10px] px-2 py-0.5 bg-slate-950 border border-slate-800 rounded-lg w-full text-slate-300 focus:outline-none"
+                          />
+                          <div className="flex gap-1.5 pt-1">
+                            <button
+                              onClick={() => handleSaveEdit(route.id)}
+                              className="px-2 py-1 bg-emerald-600 text-white rounded text-[10px] font-bold"
+                            >
+                              Kaydet
+                            </button>
+                            <button
+                              onClick={() => setEditingRouteId(null)}
+                              className="px-2 py-1 bg-slate-800 text-slate-300 rounded text-[10px]"
+                            >
+                              İptal
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-extrabold text-slate-900 text-sm leading-snug">
+                      ) : (
+                        <>
+                          <h3 className="font-extrabold text-white text-sm leading-snug">
                             {route.title}
                           </h3>
-                          {route.category && route.category !== 'Genel' && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
-                              {route.category}
-                            </span>
+                          {route.description && (
+                            <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                              {route.description}
+                            </p>
                           )}
-                        </div>
-                        {route.description && (
-                          <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
-                            {route.description}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-2 text-[10px] text-slate-600 font-semibold mt-1">
-                          {dateStr && (
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3 text-slate-500" />
-                              {dateStr}
-                            </span>
-                          )}
-                          <span>•</span>
-                          <span className="font-extrabold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
-                            {validStops.length} Durak
-                          </span>
-                          {route.distance && (
-                            <>
-                              <span>•</span>
-                              <span>{route.distance}</span>
-                            </>
-                          )}
-                          {route.duration && (
-                            <>
-                              <span>•</span>
-                              <span>{route.duration}</span>
-                            </>
-                          )}
-                        </div>
-                      </>
-                    )}
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Actions Top Right */}
                   {!isEditing && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button
-                        type="button"
                         onClick={() => handleStartEdit(route)}
                         title="Rotayı Düzenle"
-                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                       >
                         <Edit2 className="h-3.5 w-3.5" />
                       </button>
                       <button
-                        type="button"
-                        disabled={isDeletingId === route.id}
                         onClick={() => handleDelete(route.id, route.title)}
+                        disabled={isDeletingId === route.id}
                         title="Rotayı Sil"
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                        className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
                       >
-                        {isDeletingId === route.id ? (
-                          <RefreshCw className="h-3.5 w-3.5 animate-spin text-red-500" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}
                 </div>
 
-                {/* Stops Preview Bar */}
-                <div className="bg-slate-50/80 p-2 rounded-xl border border-slate-100 space-y-1">
-                  <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-[10px]">
-                    {validStops.map((stop, sIdx) => {
-                      const isFirst = sIdx === 0;
-                      const isLast = sIdx === validStops.length - 1;
-                      return (
-                        <div key={stop.id || sIdx} className="flex items-center shrink-0">
-                          <span
-                            className={`px-2 py-0.5 rounded-md font-bold truncate max-w-[130px] border shadow-2xs ${
-                              isFirst
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : isLast
-                                ? 'bg-red-50 text-red-800 border-red-200'
-                                : 'bg-white text-slate-700 border-slate-200'
-                            }`}
-                            title={`${stop.label || 'Durak'} - ${stop.address || ''}`}
-                          >
-                            {isFirst ? '🟢 ' : isLast ? '🏁 ' : `${sIdx}. `}
-                            {stop.label || 'Durak'}
-                          </span>
-                          {!isLast && (
-                            <span className="text-slate-300 mx-1">→</span>
-                          )}
-                        </div>
-                      );
-                    })}
+                {/* STOPS PREVIEW (DARK) */}
+                <div className="bg-slate-950/60 rounded-xl p-2.5 border border-slate-800/80 text-[11px] text-slate-300 space-y-1">
+                  <div className="font-bold text-[10px] text-slate-500 uppercase tracking-wider">
+                    Örnek Duraklar:
                   </div>
+                  {route.stops.slice(0, 3).map((stop, i) => (
+                    <div key={stop.id} className="truncate flex items-center gap-1.5">
+                      <span className="font-extrabold text-indigo-400 text-[10px]">#{i + 1}</span>
+                      <span className="truncate text-slate-300">{stop.label}</span>
+                    </div>
+                  ))}
+                  {route.stops.length > 3 && (
+                    <div className="text-[10px] text-slate-500 font-medium">
+                      ... ve {route.stops.length - 3} firma daha
+                    </div>
+                  )}
                 </div>
 
-                {/* Action Buttons Row */}
-                <div className="grid grid-cols-3 gap-1.5 pt-0.5">
+                {/* PRIMARY ACTIONS: 1-TAP START LIVE ROUTE & BULK GOOGLE MAPS */}
+                <div className="flex items-center gap-2 pt-1">
+                  {/* MAIN LIVE FIELD ROUTE BUTTON */}
                   <button
-                    type="button"
-                    onClick={() => onLoadRoute(route, 'route')}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2 bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-[11px] rounded-xl shadow-xs transition-all cursor-pointer active:scale-95"
+                    onClick={() => onStartLiveRoute(route)}
+                    className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-lg shadow-emerald-950 text-xs flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] transition-all"
                   >
-                    <Navigation className="h-3 w-3" />
-                    <span>Planlayıcıda Aç</span>
+                    <Play className="h-4 w-4 fill-white" />
+                    <span>Rotayı Başlat (Canlı Saha Modu) ➔</span>
                   </button>
 
+                  {/* BULK GOOGLE MAPS MULTI-STOP BUTTON */}
                   <button
-                    type="button"
-                    onClick={() => onLoadRoute(route, 'field')}
-                    className="flex items-center justify-center gap-1.5 py-2 px-2 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] rounded-xl shadow-xs transition-all cursor-pointer active:scale-95"
+                    onClick={() => startGoogleMapsMultiRoute(validStops)}
+                    title="Tüm Durakları Tek Rota Halinde Google Haritalar'da Aç"
+                    className="p-3 bg-slate-950 hover:bg-slate-800 text-indigo-400 border border-slate-800 rounded-xl transition-all cursor-pointer font-bold text-xs flex items-center gap-1.5"
                   >
-                    <CheckSquare className="h-3 w-3" />
-                    <span>Saha Takipte Aç</span>
+                    <Navigation className="h-4 w-4 text-indigo-400" />
+                    <span className="hidden sm:inline">Google Çoklu Aç</span>
                   </button>
-
-                  {onOpenShareModal ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenShareModal(route.stops, route.title)}
-                      className="flex items-center justify-center gap-1.5 py-2 px-2 bg-slate-800 hover:bg-slate-900 text-white font-extrabold text-[11px] rounded-xl shadow-xs transition-all cursor-pointer active:scale-95"
-                    >
-                      <QrCode className="h-3 w-3 text-emerald-300" />
-                      <span>Telefona Gönder</span>
-                    </button>
-                  ) : yandexUrl ? (
-                    <a
-                      href={yandexUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-1.5 py-2 px-2 bg-red-600 hover:bg-red-700 text-white font-extrabold text-[11px] rounded-xl shadow-xs transition-all cursor-pointer active:scale-95 text-center"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      <span>Yandex Harita</span>
-                    </a>
-                  ) : null}
                 </div>
+
               </div>
             );
           })
         )}
       </div>
+
+      {/* CREATE NEW ROUTE MODAL (DARK) */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-lg bg-slate-900 rounded-3xl shadow-2xl border border-slate-800 overflow-hidden flex flex-col max-h-[85vh] text-slate-100">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+              <h3 className="font-extrabold text-white text-sm">Yeni Sabit Rota Oluştur</h3>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateRouteSubmit} className="flex-1 overflow-y-auto p-4 space-y-3.5">
+              <div>
+                <label className="text-xs font-bold text-slate-300">Rota Başlığı</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Pazartesi Çarşı Rotası"
+                  value={newRouteTitle}
+                  onChange={(e) => setNewRouteTitle(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300">Açıklama (İsteğe bağlı)</label>
+                <input
+                  type="text"
+                  placeholder="Örn: Çarşı ve Hanlar bölgesi haftalık tahsilat"
+                  value={newRouteDesc}
+                  onChange={(e) => setNewRouteDesc(e.target.value)}
+                  className="w-full mt-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-300">
+                    Durakları Seç ({selectedAddressIds.length} Seçili)
+                  </label>
+                  {savedAddresses.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selectedAddressIds.length === savedAddresses.length) {
+                          setSelectedAddressIds([]);
+                        } else {
+                          setSelectedAddressIds(savedAddresses.map(a => a.id));
+                        }
+                      }}
+                      className="text-[11px] text-indigo-400 font-bold hover:underline cursor-pointer"
+                    >
+                      {selectedAddressIds.length === savedAddresses.length ? 'Tümünü Bırak' : 'Tümünü Seç'}
+                    </button>
+                  )}
+                </div>
+
+                <input
+                  type="text"
+                  placeholder="Firma ara..."
+                  value={addressSearchInModal}
+                  onChange={(e) => setAddressSearchInModal(e.target.value)}
+                  className="w-full mb-2 px-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white"
+                />
+
+                <div className="max-h-52 overflow-y-auto border border-slate-800 rounded-xl divide-y divide-slate-800/80 bg-slate-950/60">
+                  {savedAddresses
+                    .filter(a =>
+                      a.label.toLowerCase().includes(addressSearchInModal.toLowerCase()) ||
+                      a.address.toLowerCase().includes(addressSearchInModal.toLowerCase())
+                    )
+                    .map((addr) => {
+                      const isSelected = selectedAddressIds.includes(addr.id);
+                      return (
+                        <div
+                          key={addr.id}
+                          onClick={() => toggleAddressSelection(addr.id)}
+                          className={`p-2.5 flex items-center justify-between text-xs cursor-pointer transition-colors ${
+                            isSelected ? 'bg-indigo-950/70 font-bold text-indigo-300' : 'hover:bg-slate-900 text-slate-300'
+                          }`}
+                        >
+                          <div className="truncate pr-2">
+                            <p className="truncate text-xs text-white">{addr.label}</p>
+                            <p className="text-[10px] text-slate-500 font-normal truncate">{addr.address}</p>
+                          </div>
+                          <span
+                            className={`h-4 w-4 rounded flex items-center justify-center border text-[10px] shrink-0 ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'border-slate-700 bg-slate-900'
+                            }`}
+                          >
+                            {isSelected && '✓'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={selectedAddressIds.length === 0}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white text-xs font-extrabold rounded-xl shadow-md shadow-indigo-600/30"
+                >
+                  Rotayı Kaydet ({selectedAddressIds.length} Durak)
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
