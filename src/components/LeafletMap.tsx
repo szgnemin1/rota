@@ -1,3 +1,4 @@
+import { startGoogleMapsNavigation } from '../utils/navigation';
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { RouteStop, SavedAddress, TravelMode, RouteSummary } from '../types';
@@ -1808,6 +1809,18 @@ export default function LeafletMap({
               </div>
             )}
  
+            {/* Google Maps Direct Navigation Hero Button */}
+            <button
+              type="button"
+              id="map-start-google-nav-btn"
+              onClick={() => startGoogleMapsNavigation(clickedCoords.lat, clickedCoords.lng, clickedLabel, clickedAddress)}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 hover:brightness-110 active:scale-[0.98] text-white font-black text-sm shadow-md transition-all cursor-pointer border border-blue-500"
+              title="Google Haritalar uygulamasında canlı turn-by-turn navigasyonu başlat"
+            >
+              <Navigation className="h-4.5 w-4.5 fill-white shrink-0 animate-pulse" />
+              <span>Google Haritalar'da Başlat ➔</span>
+            </button>
+
             {/* Quick Add To Route Button */}
             {(() => {
               const isAlreadyInRoute = routeStops.some(s => 

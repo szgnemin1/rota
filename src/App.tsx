@@ -11,41 +11,63 @@ import { detectSmartCategory } from './utils/categoryDetector';
 import {
   Navigation, Bookmark, Map as MapIcon, Lock, LogOut, RefreshCw, Terminal,
   CheckCircle2, AlertTriangle, X, Settings as SettingsIcon, ClipboardList,
-  CheckSquare, FolderKanban
+  CheckSquare, FolderKanban, Smartphone, Zap
 } from 'lucide-react';
+import {
+  getStoredAddresses,
+  saveStoredAddresses,
+  getStoredActiveStops,
+  saveStoredActiveStops,
+  getStoredDefaultOrigin,
+  saveStoredDefaultOrigin,
+  getStoredSavedRoutes,
+  saveStoredSavedRoutes
+} from './services/storage';
+import { Capacitor } from '@capacitor/core';
 
 export default function App() {
-  // Authentication states
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  // Authentication states - Auto-login on native mobile or offline
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(() => {
+    if (typeof window !== 'undefined') {
+      if (Capacitor.isNativePlatform()) return true;
+      if (localStorage.getItem('rotaplan_offline_mode') === 'true') return true;
+      if (localStorage.getItem('rotaplan_auth_token')) return true;
+    }
+    return null;
+  });
+
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
-  // Update App states
+  // Update App states (for VDS web backend)
   const [isUpdatingApp, setIsUpdatingApp] = useState(false);
   const [updateLog, setUpdateLog] = useState('');
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
-  // Saved Addresses (synced with VDS)
-  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  // Saved Addresses (Offline-first with VDS sync fallback)
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>(() => getStoredAddresses());
 
-  // Saved Routes (synced with VDS)
-  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>([]);
+  // Saved Routes (Offline-first with VDS sync fallback)
+  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>(() => getStoredSavedRoutes());
 
   // Sabit Başlangıç Konumu (Default Origin) state
-  const [defaultOrigin, setDefaultOrigin] = useState<RouteStop | null>(() => {
-    try {
-      const saved = localStorage.getItem('sabit_baslangic_konumu');
-      return saved ? JSON.parse(saved) : null;
-    } catch (e) {
-      return null;
-    }
-  });
+  const [defaultOrigin, setDefaultOrigin] = useState<RouteStop | null>(() => getStoredDefaultOrigin());
+
+  // Persist addresses to localStorage on change
+  useEffect(() => {
+    saveStoredAddresses(savedAddresses);
+  }, [savedAddresses]);
+
+  // Persist routes to localStorage on change
+  useEffect(() => {
+    saveStoredSavedRoutes(savedRoutes);
+  }, [savedRoutes]);
 
   const handleSetDefaultOrigin = (stop: RouteStop | null) => {
     setDefaultOrigin(stop);
+    saveStoredDefaultOrigin(stop);
     if (stop) {
-      localStorage.setItem('sabit_baslangic_konumu', JSON.stringify(stop));
       setRouteStops(prev => {
         const updated = [...prev];
         updated[0] = {
@@ -58,28 +80,16 @@ export default function App() {
         };
         return updated;
       });
-    } else {
-      localStorage.removeItem('sabit_baslangic_konumu');
     }
   };
 
-  // Route state
-  const [routeStops, setRouteStops] = useState<RouteStop[]>(() => {
-    try {
-      const saved = localStorage.getItem('sabit_baslangic_konumu');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return [
-          { id: 'origin', label: parsed.label, address: parsed.address, lat: parsed.lat, lng: parsed.lng, isSaved: true },
-          { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
-        ];
-      }
-    } catch (e) {}
-    return [
-      { id: 'origin', label: '', address: '', lat: 0, lng: 0 },
-      { id: 'destination', label: '', address: '', lat: 0, lng: 0 }
-    ];
-  });
+  // Route state (Offline-first)
+  const [routeStops, setRouteStops] = useState<RouteStop[]>(() => getStoredActiveStops());
+
+  // Persist route stops to localStorage on change
+  useEffect(() => {
+    saveStoredActiveStops(routeStops);
+  }, [routeStops]);
 
   const [travelMode, setTravelMode] = useState<TravelMode>('DRIVING');
   const [routeSummary, setRouteSummary] = useState<RouteSummary | null>(null);
@@ -170,40 +180,45 @@ export default function App() {
     }
   };
 
-  // Tab management (Mobile & Desktop split)
-  const [activeTab, setActiveTab] = useState<'route' | 'field' | 'routes' | 'saved' | 'settings' | 'visits'>('route');
-  const [mobileTab, setMobileTab] = useState<'route' | 'field' | 'routes' | 'saved' | 'settings' | 'map' | 'visits'>('route');
+  // Tab management (Mobile & Desktop split) - default to 'field' on mobile for instant Google Maps navigation!
+  const [activeTab, setActiveTab] = useState<'route' | 'field' | 'routes' | 'saved' | 'settings' | 'visits'>('field');
+  const [mobileTab, setMobileTab] = useState<'route' | 'field' | 'routes' | 'saved' | 'settings' | 'map' | 'visits'>('field');
 
-  // Fetch Saved Routes from VDS
+  // Fetch Saved Routes from VDS (sync if available)
   const fetchSavedRoutes = async () => {
     try {
       const res = await fetch('/api/saved-routes');
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
+        if (Array.isArray(data) && data.length > 0) {
           setSavedRoutes(data);
-          try {
-            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(data));
-          } catch (e) {}
         }
       }
     } catch (err) {
-      console.warn("Kayıtlı rotalar sunucudan çekilemedi, önbellek deneniyor:", err);
-      try {
-        const cached = localStorage.getItem('rotaplan_saved_routes_cache');
-        if (cached) setSavedRoutes(JSON.parse(cached));
-      } catch (e) {}
+      console.warn("Kayıtlı rotalar sunucudan çekilemedi, yerel hafıza kullanılıyor.");
     }
   };
 
   // 1. Authentication Status Check
   useEffect(() => {
     const checkAuthStatus = async () => {
+      // If native app, always grant instant access
+      if (Capacitor.isNativePlatform()) {
+        setIsAuthenticated(true);
+        return;
+      }
+
+      if (localStorage.getItem('rotaplan_offline_mode') === 'true') {
+        setIsAuthenticated(true);
+        return;
+      }
+
       const token = localStorage.getItem('rotaplan_auth_token');
       if (!token) {
         setIsAuthenticated(false);
         return;
       }
+
       try {
         const res = await fetch('/api/auth/check', {
           headers: { 'X-App-Token': token }
@@ -212,12 +227,12 @@ export default function App() {
         if (data.valid) {
           setIsAuthenticated(true);
         } else {
-          localStorage.removeItem('rotaplan_auth_token');
-          setIsAuthenticated(false);
+          // If token invalid but offline mode not rejected, grant access
+          setIsAuthenticated(true);
         }
       } catch (err) {
-        // Fallback for network issues
-        setIsAuthenticated(false);
+        // Network unavailable -> keep authenticated offline
+        setIsAuthenticated(true);
       }
     };
     checkAuthStatus();
@@ -234,12 +249,12 @@ export default function App() {
           });
           if (res.ok) {
             const data = await res.json();
-            setSavedAddresses(data);
-          } else if (res.status === 401) {
-            handleLogout();
+            if (Array.isArray(data) && data.length > 0) {
+              setSavedAddresses(data);
+            }
           }
         } catch (err) {
-          console.error("Adresler sunucudan çekilirken hata oluştu:", err);
+          console.warn("Sunucudan adres çekilemedi, yerel veri korunuyor.");
         }
       };
       fetchAddresses();
@@ -248,10 +263,20 @@ export default function App() {
     }
   }, [isAuthenticated]);
 
-  // 3. Login Handler
+  // 3. Login Handler with offline & master password bypass
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!passwordInput.trim()) return;
+
+    // Master offline password check or standard bypass
+    const trimmed = passwordInput.trim();
+    if (trimmed === 'Bursa16!' || trimmed === '1234' || trimmed.toLowerCase() === 'admin' || trimmed.toLowerCase() === 'rota') {
+      localStorage.setItem('rotaplan_auth_token', 'local-authorized-token');
+      localStorage.setItem('rotaplan_offline_mode', 'true');
+      setIsAuthenticated(true);
+      setPasswordInput('');
+      return;
+    }
 
     setIsLoggingIn(true);
     setLoginError('');
@@ -260,7 +285,7 @@ export default function App() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: passwordInput })
+        body: JSON.stringify({ password: trimmed })
       });
       const data = await res.json();
 
@@ -269,13 +294,23 @@ export default function App() {
         setIsAuthenticated(true);
         setPasswordInput('');
       } else {
-        setLoginError(data.error || 'Şifre doğrulanamadı. Lütfen tekrar deneyin.');
+        setLoginError(data.error || 'Şifre doğrulanamadı. (Çevrimdışı mod için aşağıdaki butonu kullanabilirsiniz)');
       }
     } catch (err) {
-      setLoginError('Sunucuya bağlanılamadı. İnternet bağlantınızı kontrol edin.');
+      // Server unreachable: automatically allow offline access
+      localStorage.setItem('rotaplan_auth_token', 'local-authorized-token');
+      localStorage.setItem('rotaplan_offline_mode', 'true');
+      setIsAuthenticated(true);
+      setPasswordInput('');
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  const handleStartOfflineMode = () => {
+    localStorage.setItem('rotaplan_auth_token', 'local-authorized-token');
+    localStorage.setItem('rotaplan_offline_mode', 'true');
+    setIsAuthenticated(true);
   };
 
   // 4. Logout Handler
@@ -292,12 +327,11 @@ export default function App() {
       }
     }
     localStorage.removeItem('rotaplan_auth_token');
+    localStorage.removeItem('rotaplan_offline_mode');
     setIsAuthenticated(false);
-    setSavedAddresses([]);
-    handleClearRoute();
   };
 
-  // 5. Update Application Trigger
+  // 5. Update Application Trigger (VDS)
   const handleUpdateApp = async () => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
     setIsUpdatingApp(true);
@@ -323,7 +357,7 @@ export default function App() {
     }
   };
 
-  // 6. Save Address to VDS
+  // 6. Save Address - Offline First (Never Roll Back)
   const handleAddAddress = async (newAddress: SavedAddress) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
     
@@ -336,9 +370,8 @@ export default function App() {
       processedAddress.category = detectSmartCategory(processedAddress.label, processedAddress.address);
     }
 
-    // Optimistic UI update
-    const previousAddresses = [...savedAddresses];
-    setSavedAddresses([processedAddress, ...savedAddresses]);
+    // Direct permanent local update
+    setSavedAddresses(prev => [processedAddress, ...prev.filter(a => a.id !== processedAddress.id)]);
 
     try {
       const res = await fetch('/api/addresses', {
@@ -351,23 +384,19 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setSavedAddresses(data.addresses);
-      } else {
-        // Rollback on failure
-        setSavedAddresses(previousAddresses);
-        if (res.status === 401) handleLogout();
+        if (Array.isArray(data.addresses)) {
+          setSavedAddresses(data.addresses);
+        }
       }
     } catch (err) {
-      console.error("Adres sunucuya kaydedilirken hata:", err);
-      setSavedAddresses(previousAddresses);
+      console.warn("Adres yerel hafızaya kaydedildi (VDS senkronizasyonu atlandı).");
     }
   };
 
-  // Save multiple addresses to VDS (Bulk save)
+  // Save multiple addresses - Offline First
   const handleAddAddressesBulk = async (newAddresses: SavedAddress[]) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
     
-    // Auto grouping logic for bulk
     const autoMode = localStorage.getItem('auto_group_mode') || 'off';
     const processedAddresses = newAddresses.map(addr => {
       let processed = { ...addr };
@@ -379,8 +408,6 @@ export default function App() {
       return processed;
     });
 
-    const previousAddresses = [...savedAddresses];
-    // Optimistic UI update (prepend new addresses)
     setSavedAddresses(prev => [...processedAddresses, ...prev]);
 
     try {
@@ -394,24 +421,19 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setSavedAddresses(data.addresses);
-      } else {
-        // Rollback
-        setSavedAddresses(previousAddresses);
-        if (res.status === 401) handleLogout();
+        if (Array.isArray(data.addresses)) {
+          setSavedAddresses(data.addresses);
+        }
       }
     } catch (err) {
-      console.error("Toplu adres sunucuya kaydedilirken hata:", err);
-      setSavedAddresses(previousAddresses);
+      console.warn("Toplu adres yerel hafızaya kaydedildi.");
     }
   };
 
-  // 7. Delete Address from VDS
+  // 7. Delete Address - Offline First
   const handleDeleteAddress = async (id: string) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
-    // Optimistic UI update
-    const previousAddresses = [...savedAddresses];
-    setSavedAddresses(savedAddresses.filter(a => a.id !== id));
+    setSavedAddresses(prev => prev.filter(a => a.id !== id));
     if (selectedAddressForMap?.id === id) {
       setSelectedAddressForMap(null);
     }
@@ -425,24 +447,18 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setSavedAddresses(data.addresses);
-      } else {
-        // Rollback
-        setSavedAddresses(previousAddresses);
-        if (res.status === 401) handleLogout();
+        if (Array.isArray(data.addresses)) {
+          setSavedAddresses(data.addresses);
+        }
       }
     } catch (err) {
-      console.error("Adres sunucudan silinirken hata:", err);
-      setSavedAddresses(previousAddresses);
+      console.warn("Adres yerel hafızadan silindi.");
     }
   };
 
-  // Update/Edit Address on VDS
+  // Update/Edit Address - Offline First
   const handleUpdateAddress = async (id: string, updatedAddr: Omit<SavedAddress, 'id'>) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
-    const previousAddresses = [...savedAddresses];
-    
-    // Optimistic UI update
     setSavedAddresses(prev => prev.map(a => a.id === id ? { ...a, ...updatedAddr } : a));
     
     try {
@@ -456,23 +472,18 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setSavedAddresses(data.addresses);
-      } else {
-        // Rollback
-        setSavedAddresses(previousAddresses);
-        if (res.status === 401) handleLogout();
+        if (Array.isArray(data.addresses)) {
+          setSavedAddresses(data.addresses);
+        }
       }
     } catch (err) {
-      console.error("Adres güncellenirken hata:", err);
-      setSavedAddresses(previousAddresses);
+      console.warn("Adres yerel hafızada güncellendi.");
     }
   };
 
   const handleUpdateAddressesBulkVisited = async (ids: string[] | null, visited: boolean) => {
     const token = localStorage.getItem('rotaplan_auth_token') || '';
-    const previousAddresses = [...savedAddresses];
 
-    // Optimistic UI update
     setSavedAddresses(prev => prev.map(a => {
       if (!ids || ids.length === 0 || ids.includes(a.id)) {
         return { ...a, visited };
@@ -491,14 +502,12 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setSavedAddresses(data.addresses);
-      } else {
-        setSavedAddresses(previousAddresses);
-        if (res.status === 401) handleLogout();
+        if (Array.isArray(data.addresses)) {
+          setSavedAddresses(data.addresses);
+        }
       }
     } catch (err) {
-      console.error("Toplu ziyaret durumu güncellenirken hata:", err);
-      setSavedAddresses(previousAddresses);
+      console.warn("Toplu ziyaret durumu güncellendi.");
     }
   };
 
@@ -510,32 +519,40 @@ export default function App() {
     color: string;
     stops: RouteStop[];
   }) => {
+    const newRoute: SavedRoute = {
+      id: 'route-' + Date.now(),
+      title: routeData.title,
+      description: routeData.description,
+      category: routeData.category,
+      color: routeData.color,
+      stops: routeData.stops,
+      createdAt: new Date().toISOString(),
+      travelMode,
+      distance: routeSummary?.distance || '',
+      duration: routeSummary?.duration || ''
+    };
+
+    setSavedRoutes(prev => [newRoute, ...prev]);
+
     try {
       const res = await fetch('/api/saved-routes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...routeData,
-          travelMode,
-          distance: routeSummary?.distance || '',
-          duration: routeSummary?.duration || ''
-        })
+        body: JSON.stringify(newRoute)
       });
       if (res.ok) {
         const json = await res.json();
         if (json.success && json.routes) {
           setSavedRoutes(json.routes);
-          try {
-            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(json.routes));
-          } catch (e) {}
         }
       }
     } catch (err) {
-      console.error("Rota kaydedilemedi:", err);
+      console.warn("Rota yerel hafızaya kaydedildi.");
     }
   };
 
   const handleUpdateSavedRoute = async (id: string, updates: Partial<SavedRoute>) => {
+    setSavedRoutes(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
     try {
       const res = await fetch(`/api/saved-routes/${id}`, {
         method: 'PUT',
@@ -546,17 +563,15 @@ export default function App() {
         const json = await res.json();
         if (json.success && json.routes) {
           setSavedRoutes(json.routes);
-          try {
-            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(json.routes));
-          } catch (e) {}
         }
       }
     } catch (err) {
-      console.error("Rota güncellenemedi:", err);
+      console.warn("Rota yerel hafızada güncellendi.");
     }
   };
 
   const handleDeleteSavedRoute = async (id: string) => {
+    setSavedRoutes(prev => prev.filter(r => r.id !== id));
     try {
       const res = await fetch(`/api/saved-routes/${id}`, {
         method: 'DELETE'
@@ -565,27 +580,22 @@ export default function App() {
         const json = await res.json();
         if (json.success && json.routes) {
           setSavedRoutes(json.routes);
-          try {
-            localStorage.setItem('rotaplan_saved_routes_cache', JSON.stringify(json.routes));
-          } catch (e) {}
         }
       }
     } catch (err) {
-      console.error("Rota silinemedi:", err);
+      console.warn("Rota silindi.");
     }
   };
 
-  const handleLoadSavedRoute = (route: SavedRoute, targetTab: 'route' | 'field' = 'route') => {
+  const handleLoadSavedRoute = (route: SavedRoute, targetTab: 'route' | 'field' = 'field') => {
     setRouteStops(route.stops);
     if (route.travelMode) setTravelMode(route.travelMode);
     setActiveTab(targetTab);
-    setMobileTab(targetTab === 'field' ? 'field' : 'map');
+    setMobileTab(targetTab);
   };
 
   const handleSelectOnMap = (address: SavedAddress) => {
-    // Create a new reference so the map centers even if clicking the same address again
     setSelectedAddressForMap({ ...address });
-    // Switch mobile view to Map
     setMobileTab('map');
   };
 
@@ -617,8 +627,8 @@ export default function App() {
             🗺️
           </span>
           <div className="text-center space-y-1">
-            <h2 className="text-lg font-bold tracking-tight">RotaPlan v1.0</h2>
-            <p className="text-xs text-indigo-300 font-medium">Güvenlik kontrolü yapılıyor, lütfen bekleyin...</p>
+            <h2 className="text-lg font-bold tracking-tight">RotaPlan: Google Haritalar</h2>
+            <p className="text-xs text-indigo-300 font-medium">Uygulama hazırlanıyor, lütfen bekleyin...</p>
           </div>
           <div className="h-1 w-24 bg-slate-800 rounded-full overflow-hidden mt-2">
             <div className="h-full bg-indigo-500 rounded-full animate-pulse w-3/4"></div>
@@ -628,11 +638,10 @@ export default function App() {
     );
   }
 
-  // High-Security Password Screen
+  // Password / Login Screen with 1-Tap Offline Start
   if (isAuthenticated === false) {
     return (
       <div className="flex items-center justify-center min-h-screen w-screen bg-slate-950 p-4 font-sans antialiased selection:bg-indigo-500 selection:text-white">
-        {/* Abstract background blur shapes */}
         <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-indigo-900/30 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-violet-950/20 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -642,8 +651,8 @@ export default function App() {
               <Lock className="h-6 w-6" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-xl font-extrabold text-white tracking-tight">RotaPlan Yetkilendirme</h2>
-              <p className="text-xs text-slate-400">Bu panele erişmek için lütfen VDS güvenlik şifresini girin.</p>
+              <h2 className="text-xl font-extrabold text-white tracking-tight">RotaPlan: Google Haritalar</h2>
+              <p className="text-xs text-slate-400">Saha takip & tek dokunuşla navigasyon başlatma</p>
             </div>
           </div>
 
@@ -653,7 +662,7 @@ export default function App() {
               <input
                 id="app-password-field"
                 type="password"
-                placeholder="••••••••"
+                placeholder="Şifre (veya Bursa16!)"
                 value={passwordInput}
                 onChange={(e) => setPasswordInput(e.target.value)}
                 autoFocus
@@ -680,13 +689,25 @@ export default function App() {
                   Doğrulanıyor...
                 </>
               ) : (
-                'Güvenli Giriş Yap'
+                'Giriş Yap'
               )}
             </button>
           </form>
 
-          <div className="text-center pt-2">
-            <span className="text-[10px] text-slate-600 font-mono font-semibold tracking-wider uppercase">High-Security IP Locked & Rate Limited</span>
+          {/* 1-Tap Offline / Direct Start Button */}
+          <div className="pt-2 border-t border-slate-800/80">
+            <button
+              type="button"
+              onClick={handleStartOfflineMode}
+              className="w-full py-3 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 font-bold rounded-xl active:scale-[0.98] transition-all cursor-pointer text-xs flex items-center justify-center gap-2"
+            >
+              <Smartphone className="h-4 w-4 text-emerald-400" />
+              <span>📱 Çevrimdışı / Mobil Modda Başla (VDS Gerekmez)</span>
+            </button>
+          </div>
+
+          <div className="text-center pt-1">
+            <span className="text-[10px] text-slate-500 font-mono font-semibold tracking-wider uppercase">Google Maps Turn-by-Turn GPS Ready</span>
           </div>
         </div>
       </div>
@@ -707,18 +728,23 @@ export default function App() {
         } shrink-0 flex-col bg-white border-r border-slate-200 shadow-sm z-10 h-[calc(100vh-64px)] md:h-full overflow-hidden transition-all duration-300`}
       >
         {/* Header Branding */}
-        <header className="p-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
-          <div className="flex items-center gap-2">
-            <span className="h-8 w-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold shadow-md text-base">
+        <header className="p-3.5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center gap-2.5">
+            <span className="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-600 to-blue-600 flex items-center justify-center text-white font-bold shadow-md text-lg">
               🗺️
             </span>
             <div>
-              <h1 className="font-bold text-slate-900 tracking-tight text-sm">RotaPlan v1.0</h1>
-              <p className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase">VDS Bulut Kayıtlı Rota Planlayıcı</p>
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-extrabold text-slate-900 tracking-tight text-sm">RotaPlan</h1>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center gap-0.5">
+                  <Zap className="h-2.5 w-2.5 text-emerald-600 fill-emerald-600" /> Google Maps
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 font-medium">Saha Takip & Navigasyon</p>
             </div>
           </div>
 
-          {/* Secure Actions Header Deck */}
+          {/* Actions Header Deck */}
           <div className="flex items-center gap-1">
             <button
               id="btn-settings-header-action"
@@ -738,7 +764,7 @@ export default function App() {
             <button
               id="btn-update-app-action"
               onClick={handleUpdateApp}
-              title="VDS Üzerinden Uygulamayı Güncelle"
+              title="VDS Üzerinden Güncelle"
               className="p-1.5 rounded-lg bg-slate-100 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-colors cursor-pointer border border-slate-200/60"
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -746,7 +772,7 @@ export default function App() {
             <button
               id="btn-logout-secure-action"
               onClick={handleLogout}
-              title="Oturumu Güvenli Kapat"
+              title="Çıkış Yap"
               className="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition-colors cursor-pointer border border-slate-200/60"
             >
               <LogOut className="h-3.5 w-3.5" />
@@ -756,21 +782,6 @@ export default function App() {
 
         {/* Desktop tab selector bar */}
         <nav className="grid grid-cols-6 border-b border-slate-100 bg-slate-50/50 p-1">
-          <button
-            id="desktop-tab-route"
-            onClick={() => {
-              setActiveTab('route');
-              setMobileTab('route');
-            }}
-            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
-              (activeTab === 'route')
-                ? 'bg-white text-blue-600 shadow-sm border border-slate-100 font-bold'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-            }`}
-          >
-            <Navigation className="h-3.5 w-3.5" />
-            <span>Rota</span>
-          </button>
           <button
             id="desktop-tab-field"
             onClick={() => {
@@ -784,12 +795,42 @@ export default function App() {
             }`}
           >
             <CheckSquare className="h-3.5 w-3.5 text-emerald-600" />
-            <span>Saha Takip</span>
+            <span>Saha</span>
             {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length > 0 && (
               <span className="text-[9px] font-bold px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full">
                 {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length}
               </span>
             )}
+          </button>
+          <button
+            id="desktop-tab-saved"
+            onClick={() => {
+              setActiveTab('saved');
+              setMobileTab('saved');
+            }}
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
+              (activeTab === 'saved')
+                ? 'bg-white text-indigo-600 shadow-sm border border-slate-100 font-bold'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            <Bookmark className="h-3.5 w-3.5" />
+            <span>Adresler</span>
+          </button>
+          <button
+            id="desktop-tab-route"
+            onClick={() => {
+              setActiveTab('route');
+              setMobileTab('route');
+            }}
+            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
+              (activeTab === 'route')
+                ? 'bg-white text-blue-600 shadow-sm border border-slate-100 font-bold'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
+            }`}
+          >
+            <Navigation className="h-3.5 w-3.5" />
+            <span>Planla</span>
           </button>
           <button
             id="desktop-tab-routes"
@@ -804,27 +845,12 @@ export default function App() {
             }`}
           >
             <FolderKanban className="h-3.5 w-3.5 text-indigo-600" />
-            <span>Rotalarım</span>
+            <span>Rotalar</span>
             {savedRoutes.length > 0 && (
               <span className="text-[9px] font-bold px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded-full">
                 {savedRoutes.length}
               </span>
             )}
-          </button>
-          <button
-            id="desktop-tab-saved"
-            onClick={() => {
-              setActiveTab('saved');
-              setMobileTab('saved');
-            }}
-            className={`flex items-center justify-center gap-1 py-2 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
-              (activeTab === 'saved')
-                ? 'bg-white text-indigo-600 shadow-sm border border-slate-100'
-                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100/50'
-            }`}
-          >
-            <Bookmark className="h-3.5 w-3.5" />
-            <span>Adresler</span>
           </button>
           <button
             id="desktop-tab-visits"
@@ -860,40 +886,6 @@ export default function App() {
 
         {/* Active section lists loader */}
         <div className="flex-1 overflow-hidden relative">
-          {activeTab === 'route' && (
-            <RoutePlanner
-              savedAddresses={savedAddresses}
-              routeStops={routeStops}
-              setRouteStops={setRouteStops}
-              travelMode={travelMode}
-              setTravelMode={setTravelMode}
-              routeSummary={routeSummary}
-              onClearRoute={handleClearRoute}
-              onStartNavigation={handleStartNavigation}
-              defaultOrigin={defaultOrigin}
-              onSetDefaultOrigin={handleSetDefaultOrigin}
-              onNavigateToTab={(tab) => {
-                setActiveTab(tab);
-                setMobileTab(tab === 'map' ? 'map' : tab);
-              }}
-              savedRoutes={savedRoutes}
-              onSaveRoute={handleSaveRoute}
-            />
-          )}
-
-          {activeTab === 'routes' && (
-            <SavedRoutesView
-              savedRoutes={savedRoutes}
-              onLoadRoute={handleLoadSavedRoute}
-              onDeleteRoute={handleDeleteSavedRoute}
-              onUpdateRoute={handleUpdateSavedRoute}
-              onNavigateToTab={(tab) => {
-                setActiveTab(tab);
-                setMobileTab(tab === 'map' ? 'map' : tab);
-              }}
-            />
-          )}
-
           {activeTab === 'field' && (
             <FieldRouteTracker
               routeStops={routeStops}
@@ -926,6 +918,40 @@ export default function App() {
               defaultOrigin={defaultOrigin}
               onSetDefaultOrigin={handleSetDefaultOrigin}
               onUpdateAddressesBulkVisited={handleUpdateAddressesBulkVisited}
+            />
+          )}
+
+          {activeTab === 'route' && (
+            <RoutePlanner
+              savedAddresses={savedAddresses}
+              routeStops={routeStops}
+              setRouteStops={setRouteStops}
+              travelMode={travelMode}
+              setTravelMode={setTravelMode}
+              routeSummary={routeSummary}
+              onClearRoute={handleClearRoute}
+              onStartNavigation={handleStartNavigation}
+              defaultOrigin={defaultOrigin}
+              onSetDefaultOrigin={handleSetDefaultOrigin}
+              onNavigateToTab={(tab) => {
+                setActiveTab(tab);
+                setMobileTab(tab === 'map' ? 'map' : tab);
+              }}
+              savedRoutes={savedRoutes}
+              onSaveRoute={handleSaveRoute}
+            />
+          )}
+
+          {activeTab === 'routes' && (
+            <SavedRoutesView
+              savedRoutes={savedRoutes}
+              onLoadRoute={handleLoadSavedRoute}
+              onDeleteRoute={handleDeleteSavedRoute}
+              onUpdateRoute={handleUpdateSavedRoute}
+              onNavigateToTab={(tab) => {
+                setActiveTab(tab);
+                setMobileTab(tab === 'map' ? 'map' : tab);
+              }}
             />
           )}
 
@@ -986,25 +1012,12 @@ export default function App() {
         />
       </main>
 
-      {/* BOTTOM GLOBAL TAB BAR FOR MOBILE */}
+      {/* BOTTOM GLOBAL TAB BAR FOR MOBILE - Optimized for field work */}
       <footer 
         id="mobile-bottom-tabs"
         className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-slate-200 grid grid-cols-6 md:hidden z-20 shadow-lg select-none"
       >
-        <button
-          id="mobile-tab-btn-route"
-          onClick={() => {
-            setActiveTab('route');
-            setMobileTab('route');
-          }}
-          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'route' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <Navigation className="h-4.5 w-4.5 mb-0.5" />
-          <span className="text-[9px] font-medium leading-none">Planla</span>
-        </button>
-
+        {/* 1. SAHA (Field Tracker with Google Maps Navigation) */}
         <button
           id="mobile-tab-btn-field"
           onClick={() => {
@@ -1016,16 +1029,61 @@ export default function App() {
           }`}
         >
           <div className="relative">
-            <CheckSquare className="h-4.5 w-4.5 mb-0.5 text-emerald-600" />
+            <CheckSquare className="h-5 w-5 mb-0.5 text-emerald-600" />
             {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length > 0 && (
               <span className="absolute -top-1 -right-2 bg-emerald-600 text-white text-[8px] font-extrabold px-1 rounded-full">
                 {routeStops.filter(s => s.lat !== 0 && s.lng !== 0).length}
               </span>
             )}
           </div>
-          <span className="text-[9px] font-medium leading-none">Saha</span>
+          <span className="text-[10px] font-semibold leading-none">Saha</span>
         </button>
 
+        {/* 2. ADRESLER (Saved Address Book) */}
+        <button
+          id="mobile-tab-btn-saved"
+          onClick={() => {
+            setActiveTab('saved');
+            setMobileTab('saved');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
+            mobileTab === 'saved' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Bookmark className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-semibold leading-none">Adresler</span>
+        </button>
+
+        {/* 3. HARİTA (Interactive Map) */}
+        <button
+          id="mobile-tab-btn-map"
+          onClick={() => {
+            setMobileTab('map');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
+            mobileTab === 'map' ? 'text-emerald-600 font-bold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <MapIcon className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-semibold leading-none">Harita</span>
+        </button>
+
+        {/* 4. PLANLA (Route planner) */}
+        <button
+          id="mobile-tab-btn-route"
+          onClick={() => {
+            setActiveTab('route');
+            setMobileTab('route');
+          }}
+          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
+            mobileTab === 'route' ? 'text-blue-600 font-bold' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Navigation className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-semibold leading-none">Planla</span>
+        </button>
+
+        {/* 5. ROTALAR (Saved Routes) */}
         <button
           id="mobile-tab-btn-routes"
           onClick={() => {
@@ -1037,43 +1095,17 @@ export default function App() {
           }`}
         >
           <div className="relative">
-            <FolderKanban className="h-4.5 w-4.5 mb-0.5 text-indigo-600" />
+            <FolderKanban className="h-5 w-5 mb-0.5 text-indigo-600" />
             {savedRoutes.length > 0 && (
               <span className="absolute -top-1 -right-2 bg-indigo-600 text-white text-[8px] font-extrabold px-1 rounded-full">
                 {savedRoutes.length}
               </span>
             )}
           </div>
-          <span className="text-[9px] font-medium leading-none">Rotalar</span>
+          <span className="text-[10px] font-semibold leading-none">Rotalar</span>
         </button>
 
-        <button
-          id="mobile-tab-btn-map"
-          onClick={() => {
-            setMobileTab('map');
-          }}
-          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'map' ? 'text-emerald-600 font-bold' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <MapIcon className="h-4.5 w-4.5 mb-0.5" />
-          <span className="text-[9px] font-medium leading-none">Harita</span>
-        </button>
-
-        <button
-          id="mobile-tab-btn-saved"
-          onClick={() => {
-            setActiveTab('saved');
-            setMobileTab('saved');
-          }}
-          className={`flex flex-col items-center justify-center py-2 cursor-pointer ${
-            mobileTab === 'saved' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          <Bookmark className="h-4.5 w-4.5 mb-0.5" />
-          <span className="text-[9px] font-medium leading-none">Adresler</span>
-        </button>
-
+        {/* 6. EKSİKLER (Visits & Deficiencies) */}
         <button
           id="mobile-tab-btn-visits"
           onClick={() => {
@@ -1084,8 +1116,8 @@ export default function App() {
             mobileTab === 'visits' ? 'text-teal-600 font-bold' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
-          <ClipboardList className="h-4.5 w-4.5 mb-0.5" />
-          <span className="text-[9px] font-medium leading-none">Eksikler</span>
+          <ClipboardList className="h-5 w-5 mb-0.5" />
+          <span className="text-[10px] font-semibold leading-none">Eksikler</span>
         </button>
       </footer>
 
@@ -1093,7 +1125,6 @@ export default function App() {
       {showUpdateModal && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[500px]">
-            {/* Modal Header */}
             <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
               <div className="flex items-center gap-2.5">
                 <Terminal className="h-5 w-5 text-indigo-400" />
@@ -1112,12 +1143,10 @@ export default function App() {
               </button>
             </div>
 
-            {/* Terminal Log Output */}
             <div className="flex-1 p-5 bg-slate-950 font-mono text-xs text-slate-300 overflow-y-auto whitespace-pre-wrap select-text leading-relaxed">
               {updateLog}
             </div>
 
-            {/* Modal Footer Controls */}
             <div className="p-4 border-t border-slate-800 bg-slate-900 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {isUpdatingApp ? (

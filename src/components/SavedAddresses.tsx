@@ -4,6 +4,7 @@ import PlaceSearchBox from './PlaceSearchBox';
 import { Bookmark, Trash2, Home, Briefcase, MapPin, Plus, CheckCircle, Navigation, FileSpreadsheet, Upload, AlertCircle, Loader2, Info, X, Edit, Crosshair, Search, Star } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import YandexExportModal from './YandexExportModal';
+import { startGoogleMapsNavigation, callPhoneNumber, openWhatsAppChat } from '../utils/navigation';
 
 interface SavedAddressesProps {
   savedAddresses: SavedAddress[];
@@ -1808,18 +1809,19 @@ export default function SavedAddresses({
                                     <MapPin className="h-3 w-3 shrink-0" />
                                     Varış
                                   </button>
-                                  <a
-                                    id={`yandex-open-btn-${addr.id}`}
-                                    href={`https://yandex.com.tr/maps/?rtext=~${addr.lat},${addr.lng}&rtt=auto`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="flex items-center gap-1 px-2.5 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-extrabold text-[10px] shadow-xs transition-all cursor-pointer border border-red-700 ml-auto"
-                                    title="Yandex Navigasyon'da bu konumu aç ve tek tıkla ⭐ Yer İmlerine kaydet"
+                                  <button
+                                    id={`google-nav-btn-${addr.id}`}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startGoogleMapsNavigation(addr.lat, addr.lng, addr.label, addr.address);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-emerald-600 hover:brightness-110 text-white font-extrabold text-[11px] shadow-xs transition-all cursor-pointer border border-blue-500 ml-auto active:scale-95"
+                                    title="Google Haritalar'da turn-by-turn canlı GPS navigasyonunu başlat"
                                   >
-                                    <Navigation className="h-3 w-3 shrink-0 fill-white text-white" />
-                                    <span>Yandex'te Aç (⭐)</span>
-                                  </a>
+                                    <Navigation className="h-3.5 w-3.5 shrink-0 fill-white text-white" />
+                                    <span>Google Haritalar'da Başlat ➔</span>
+                                  </button>
                                 </div>
                               )}
                             </div>

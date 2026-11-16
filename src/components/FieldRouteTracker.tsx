@@ -3,8 +3,9 @@ import { RouteStop, SavedAddress } from '../types';
 import {
   Navigation, CheckCircle2, Circle, Phone, User, FileText,
   MapPin, RotateCcw, Sparkles, ExternalLink, ArrowRight,
-  Clock, Check, AlertCircle, Share2, Compass, Eye, Filter
+  Clock, Check, AlertCircle, Share2, Compass, Eye, Filter, MessageCircle
 } from 'lucide-react';
+import { startGoogleMapsNavigation, startGoogleMapsMultiRoute, callPhoneNumber, openWhatsAppChat } from '../utils/navigation';
 
 interface FieldRouteTrackerProps {
   routeStops: RouteStop[];
@@ -274,7 +275,7 @@ export default function FieldRouteTracker({
                 Saha Rota &amp; Ziyaret Takibi
               </h2>
               <span className="text-[10px] text-slate-500 font-medium">
-                {validStops.length} Durak | Yandex Maps Mobil Modu
+                {validStops.length} Durak | Google Haritalar Canlı Takip Modu
               </span>
             </div>
           </div>
@@ -307,13 +308,13 @@ export default function FieldRouteTracker({
             <span className="font-bold text-slate-700">
               İlerleme Durumu: <span className="text-emerald-600">{completedCount}</span> / {validStops.length} Gidildi
             </span>
-            <span className="font-extrabold text-xs text-red-600">
+            <span className="font-extrabold text-xs text-blue-600">
               %{progressPercent}
             </span>
           </div>
           <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200/80">
             <div
-              className="h-full bg-gradient-to-r from-red-600 to-emerald-500 transition-all duration-300 rounded-full"
+              className="h-full bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500 transition-all duration-300 rounded-full"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -321,17 +322,16 @@ export default function FieldRouteTracker({
 
         {/* Fast Action Buttons Bar */}
         <div className="grid grid-cols-2 gap-2 pt-0.5">
-          <a
-            id="field-top-bulk-yandex-btn"
-            href={getBulkYandexUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all text-center cursor-pointer active:scale-95"
-            title="Tüm durakları sıralı olarak doğrudan Yandex Navigasyon uygulamasında açar."
+          <button
+            type="button"
+            id="field-top-bulk-google-btn"
+            onClick={() => startGoogleMapsMultiRoute(validStops)}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all text-center cursor-pointer active:scale-95"
+            title="Tüm durakları sıralı olarak doğrudan Google Haritalar uygulamasında açar."
           >
             <Navigation className="h-4 w-4 shrink-0 fill-white" />
-            <span>Tüm Rotayı Yandex'te Aç</span>
-          </a>
+            <span>Tümünü Google'da Başlat</span>
+          </button>
 
           <button
             type="button"
@@ -466,24 +466,37 @@ export default function FieldRouteTracker({
                         <span className="break-words">{stop.address || 'Adres bilgisi girilmedi'}</span>
                       </p>
 
-                      {/* Phone & Contact Person */}
+                      {/* Phone & WhatsApp Quick Actions */}
                       {(phone || contact) && (
-                        <div className="flex items-center gap-3 mt-1.5 flex-wrap text-xs">
+                        <div className="flex items-center gap-2 mt-2 flex-wrap text-xs">
                           {contact && (
-                            <span className="inline-flex items-center gap-1 text-slate-600 font-medium">
-                              <User className="h-3.5 w-3.5 text-slate-400" />
+                            <span className="inline-flex items-center gap-1 text-slate-700 font-semibold bg-slate-100 px-2 py-1 rounded-lg">
+                              <User className="h-3.5 w-3.5 text-slate-500" />
                               {contact}
                             </span>
                           )}
 
                           {phone && (
-                            <a
-                              href={`tel:${phone}`}
-                              className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200/80 transition-colors"
-                            >
-                              <Phone className="h-3.5 w-3.5 text-emerald-600" />
-                              <span>{phone} (Ara)</span>
-                            </a>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => callPhoneNumber(phone)}
+                                className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors"
+                                title="Telefonla Ara"
+                              >
+                                <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                                <span>{phone}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openWhatsAppChat(phone, stop.label)}
+                                className="inline-flex items-center gap-1 text-green-700 font-bold bg-green-50 hover:bg-green-100 px-2.5 py-1 rounded-lg border border-green-200 transition-colors"
+                                title="WhatsApp'tan Yaz"
+                              >
+                                <MessageCircle className="h-3.5 w-3.5 text-green-600" />
+                                <span>WhatsApp</span>
+                              </button>
+                            </div>
                           )}
                         </div>
                       )}
@@ -491,19 +504,18 @@ export default function FieldRouteTracker({
                   </div>
                 </div>
 
-                {/* YANDEX MAPS DIRECT BUTTON */}
+                {/* GOOGLE MAPS DIRECT HERO BUTTON */}
                 <div className="pt-1">
-                  <a
-                    id={`yandex-open-stop-${stop.id}`}
-                    href={yandexSingleUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-2 py-3 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md hover:shadow-lg transition-all text-center cursor-pointer border border-red-700 active:scale-[0.98]"
-                    title="Cihazdaki Yandex Maps / Navigasyon uygulamasını bu firmanın konumuna açar."
+                  <button
+                    type="button"
+                    id={`google-nav-stop-${stop.id}`}
+                    onClick={() => startGoogleMapsNavigation(stop.lat, stop.lng, stop.label, stop.address)}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 px-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 hover:brightness-110 active:scale-[0.98] text-white font-black text-sm rounded-xl shadow-md hover:shadow-lg transition-all text-center cursor-pointer border border-blue-500"
+                    title="Telefonundaki Google Haritalar uygulamasını açar ve anında canlı GPS navigasyonunu başlatır."
                   >
-                    <Navigation className="h-4.5 w-4.5 fill-white shrink-0" />
-                    <span>Yandex Maps'te Konumu Aç ↗</span>
-                  </a>
+                    <Navigation className="h-5 w-5 fill-white shrink-0 animate-pulse" />
+                    <span>Google Haritalar'da Başlat ➔</span>
+                  </button>
                 </div>
 
                 {/* NOTE WRITING SECTION */}

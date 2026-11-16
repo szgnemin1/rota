@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Navigation, CheckCircle2, Circle, Phone, User, FileText,
   MapPin, RotateCcw, ArrowRight, Check, RefreshCw, Share2,
-  ExternalLink, Layers, Sparkles
+  ExternalLink, Layers, Sparkles, MessageCircle
 } from 'lucide-react';
+import { startGoogleMapsNavigation, startGoogleMapsMultiRoute, callPhoneNumber, openWhatsAppChat } from '../utils/navigation';
 
 interface StandaloneStop {
   id: string;
@@ -368,18 +369,18 @@ export default function StandaloneFieldPage() {
           </div>
         </div>
 
-        {/* Bulk Yandex Navigation & Next Stop Buttons */}
+        {/* Bulk Google Navigation & Next Stop Buttons */}
         <div className="grid grid-cols-2 gap-2 pt-0.5">
-          <a
-            id="standalone-bulk-yandex-btn"
-            href={getBulkYandexUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all text-center cursor-pointer active:scale-95"
+          <button
+            type="button"
+            id="standalone-bulk-google-btn"
+            onClick={() => startGoogleMapsMultiRoute(validStops)}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-xs transition-all text-center cursor-pointer active:scale-95"
+            title="Tüm durakları doğrudan Google Haritalar uygulamasında tek rotada açar."
           >
             <Navigation className="h-4 w-4 shrink-0 fill-white" />
-            <span>Tüm Rotayı Yandex'te Aç</span>
-          </a>
+            <span>Tüm Rotayı Google'da Aç</span>
+          </button>
 
           <button
             type="button"
@@ -509,41 +510,53 @@ export default function StandaloneFieldPage() {
 
                     {/* Contact Person & Phone Link */}
                     {(stop.phone || stop.contactPerson) && (
-                      <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-xs">
+                      <div className="flex items-center gap-2 mt-2 flex-wrap text-xs">
                         {stop.contactPerson && (
-                          <span className="inline-flex items-center gap-1 text-slate-600 font-medium">
-                            <User className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="inline-flex items-center gap-1 text-slate-700 font-semibold bg-slate-100 px-2 py-1 rounded-lg">
+                            <User className="h-3.5 w-3.5 text-slate-500" />
                             {stop.contactPerson}
                           </span>
                         )}
 
                         {stop.phone && (
-                          <a
-                            href={`tel:${stop.phone}`}
-                            className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200/80 transition-colors"
-                          >
-                            <Phone className="h-3.5 w-3.5 text-emerald-600" />
-                            <span>{stop.phone} (Ara)</span>
-                          </a>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => callPhoneNumber(stop.phone!)}
+                              className="inline-flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 transition-colors"
+                              title="Telefonla Ara"
+                            >
+                              <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                              <span>{stop.phone}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openWhatsAppChat(stop.phone!, stop.label)}
+                              className="inline-flex items-center gap-1 text-green-700 font-bold bg-green-50 hover:bg-green-100 px-2.5 py-1 rounded-lg border border-green-200 transition-colors"
+                              title="WhatsApp'tan Yaz"
+                            >
+                              <MessageCircle className="h-3.5 w-3.5 text-green-600" />
+                              <span>WhatsApp</span>
+                            </button>
+                          </div>
                         )}
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* YANDEX MAPS BUTTON (Mobile Firefox Friendly) */}
+                {/* GOOGLE MAPS DIRECT BUTTON */}
                 <div className="pt-1">
-                  <a
-                    id={`standalone-yandex-open-${stop.id}`}
-                    href={yandexSingleUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full flex items-center justify-center gap-2 py-3 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md transition-all text-center cursor-pointer border border-red-700 active:scale-[0.98]"
-                    title="Cihazdaki Yandex Maps veya Yandex Navigasyon uygulamasında açar."
+                  <button
+                    type="button"
+                    id={`standalone-google-nav-${stop.id}`}
+                    onClick={() => startGoogleMapsNavigation(stop.lat, stop.lng, stop.label, stop.address)}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 px-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 hover:brightness-110 active:scale-[0.98] text-white font-black text-sm rounded-xl shadow-md transition-all text-center cursor-pointer border border-blue-500"
+                    title="Telefonundaki Google Haritalar uygulamasını açar ve doğrudan canlı GPS navigasyonunu başlatır."
                   >
-                    <Navigation className="h-4.5 w-4.5 fill-white shrink-0" />
-                    <span>Yandex Maps'te Konumu Aç ↗</span>
-                  </a>
+                    <Navigation className="h-5 w-5 fill-white shrink-0 animate-pulse" />
+                    <span>Google Haritalar'da Başlat ➔</span>
+                  </button>
                 </div>
 
                 {/* NOTE WRITING BOX */}

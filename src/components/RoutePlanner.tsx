@@ -1,3 +1,4 @@
+import { startGoogleMapsNavigation, startGoogleMapsMultiRoute, getGoogleMapsRouteUrl } from '../utils/navigation';
 import { useState, useEffect } from 'react';
 import { RouteStop, SavedAddress, TravelMode, RouteSummary, SavedRoute } from '../types';
 import PlaceSearchBox from './PlaceSearchBox';
@@ -385,6 +386,7 @@ export default function RoutePlanner({
   };
 
   const yandexUrl = getYandexUrl();
+  const googleMapsUrl = getGoogleMapsRouteUrl(validStops, defaultOrigin);
 
   const intervalLabels: Record<string, string> = {
     'none': 'Belirtilmemiş',
@@ -1308,20 +1310,32 @@ export default function RoutePlanner({
               {/* Navigation Action Buttons */}
               <div className="space-y-2">
 
-                {/* Yandex Navigator Big Primary Button */}
+                {/* GOOGLE MAPS PRIMARY BUTTON */}
+                <button
+                  id="send-google-nav-btn"
+                  type="button"
+                  onClick={() => startGoogleMapsMultiRoute(validStops, defaultOrigin)}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 px-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-600 hover:brightness-110 text-white font-black text-sm rounded-xl shadow-md hover:shadow-lg transition-all text-center cursor-pointer border border-blue-500 group active:scale-[0.98]"
+                  title="Tüm durakları Google Haritalar uygulamasında canlı GPS navigasyonu olarak başlatır."
+                >
+                  <Navigation className="h-5 w-5 fill-white shrink-0 group-hover:scale-110 transition-transform animate-pulse" />
+                  <span>Google Haritalar'da Rotayı Başlat ➔</span>
+                  <span className="text-[10px] font-bold text-white bg-black/30 px-2 py-0.5 rounded-full ml-1">
+                    {validStops.length} Durak
+                  </span>
+                </button>
+
+                {/* Yandex Navigator Secondary Button */}
                 <a
                   id="send-yandex-nav-btn"
                   href={yandexUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-2 py-3 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-extrabold text-xs sm:text-sm rounded-xl shadow-md hover:shadow-lg transition-all text-center cursor-pointer border border-red-700 group active:scale-[0.99]"
-                  title="Tüm durakları doğrudan Yandex Navigasyon uygulamasında açar."
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all text-center cursor-pointer border border-slate-200"
+                  title="Alternatif: Yandex Navigasyon uygulamasında aç"
                 >
-                  <Navigation className="h-4.5 w-4.5 fill-white shrink-0 group-hover:scale-110 transition-transform" />
-                  <span>Yandex Navigasyon'da Rotayı Başlat</span>
-                  <span className="text-[10px] font-bold text-red-100 bg-red-800/80 px-2 py-0.5 rounded-full ml-1">
-                    {validStops.length} Durak (Sınırsız) 🚀
-                  </span>
+                  <Navigation className="h-4 w-4 text-red-600 shrink-0" />
+                  <span>Alternatif: Yandex Navigasyon'da Aç</span>
                 </a>
 
                 {/* Yandex Link Copy Button */}

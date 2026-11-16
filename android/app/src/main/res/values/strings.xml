@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RotaPlan Google Haritalar</string>
+    <string name="title_activity_main">RotaPlan Google Haritalar</string>
+    <string name="package_name">com.rotaplan.bursa.googlemaps</string>
+    <string name="custom_url_scheme">com.rotaplan.bursa.googlemaps</string>
+</resources>
